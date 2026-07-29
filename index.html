@@ -1,0 +1,1089 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#141A24">
+<title>improvguit</title>
+<style>
+:root{
+  --encre:#141A24;
+  --ardoise:#1E2632;
+  --ardoise-clair:#28323F;
+  --trait:#33404F;
+  --nacre:#EDE7DB;
+  --nacre-faible:#8B95A3;
+  --laiton:#D6A73C;
+  --indigo:#7FA0D4;
+  --vert:#4FB49A;
+  --bois:#2C2118;
+  --frette:#B99242;
+  --corde:#98A0AA;
+  --mono:ui-monospace,"SF Mono","Roboto Mono","DejaVu Sans Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--encre);color:var(--nacre);font-family:var(--sans);-webkit-text-size-adjust:100%}
+body{padding:0 14px calc(96px + env(safe-area-inset-bottom));max-width:560px;margin:0 auto;line-height:1.45}
+button,select,input{font:inherit;color:inherit}
+button{cursor:pointer;background:none;border:none}
+:focus-visible{outline:2px solid var(--laiton);outline-offset:2px;border-radius:3px}
+
+header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 0 10px}
+.marque{font-family:var(--mono);font-size:13px;letter-spacing:.22em;text-transform:uppercase;color:var(--nacre-faible)}
+.marque b{color:var(--nacre);font-weight:600}
+.lien-reglages{font-family:var(--mono);font-size:12px;letter-spacing:.1em;color:var(--nacre-faible);border:1px solid var(--trait);border-radius:999px;padding:5px 12px}
+.lien-reglages[aria-expanded="true"]{color:var(--laiton);border-color:var(--laiton)}
+
+.grades{display:flex;gap:6px;overflow-x:auto;padding-bottom:12px;scrollbar-width:none}
+.grades::-webkit-scrollbar{display:none}
+.grade{flex:0 0 auto;font-family:var(--mono);font-size:12px;letter-spacing:.08em;padding:7px 13px;border:1px solid var(--trait);border-radius:999px;color:var(--nacre-faible);white-space:nowrap;transition:.16s}
+.grade[aria-pressed="true"]{background:var(--laiton);border-color:var(--laiton);color:var(--encre);font-weight:600}
+
+.consigne{background:var(--ardoise);border:1px solid var(--trait);border-left:3px solid var(--laiton);border-radius:4px;padding:13px 15px;margin-bottom:14px}
+.consigne h1{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--laiton);font-weight:600;margin-bottom:7px}
+.consigne p{font-size:15px}
+.consigne p+p{margin-top:7px}
+.consigne .contrainte{font-size:13.5px;color:var(--nacre-faible);border-top:1px dashed var(--trait);margin-top:10px;padding-top:9px;display:flex;align-items:flex-start;gap:10px}
+.consigne .contrainte span{flex:1}
+.tirer{font-family:var(--mono);font-size:15px;color:var(--laiton);border:1px solid var(--trait);border-radius:4px;width:30px;height:30px;flex:0 0 auto;line-height:1}
+kbd{font-family:var(--mono);background:var(--ardoise-clair);border:1px solid var(--trait);border-radius:3px;padding:1px 6px;font-size:.92em;color:var(--nacre)}
+
+.manche-cadre{background:var(--ardoise);border:1px solid var(--trait);border-radius:4px;overflow:hidden;margin-bottom:12px}
+.manche-entete{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:9px 12px 7px;border-bottom:1px solid var(--trait)}
+.accord-actuel{font-family:var(--mono);font-size:26px;font-weight:600;letter-spacing:.04em;line-height:1}
+.entete-droite{text-align:right}
+.accord-suivant{font-family:var(--mono);font-size:12px;letter-spacing:.1em;color:var(--nacre-faible);display:block}
+.position{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;color:var(--nacre-faible);display:block;margin-top:2px}
+.manche-defil{max-height:52vh;overflow-y:auto;overscroll-behavior:contain}
+svg.manche{display:block;width:100%;height:auto}
+.legende{display:flex;flex-wrap:wrap;gap:4px 14px;padding:8px 12px 10px;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;color:var(--nacre-faible);border-top:1px solid var(--trait)}
+.legende i{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:baseline}
+
+.grille-cadre{max-height:24vh;overflow-y:auto;overscroll-behavior:contain;margin-bottom:16px}
+.grille{display:flex;flex-wrap:wrap;gap:5px}
+.mesure{flex:1 1 auto;min-width:70px;border:1px solid var(--trait);border-radius:3px;padding:5px 6px 6px;background:var(--ardoise)}
+.mesure.change{border-color:var(--laiton)}
+.mesure-nom{font-family:var(--mono);font-size:11px;letter-spacing:.04em;color:var(--nacre-faible);margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mesure.change .mesure-nom{color:var(--nacre)}
+.temps{display:flex;gap:3px}
+.temp{flex:1;height:16px;border-radius:2px;background:var(--ardoise-clair);transition:background .07s,transform .07s}
+.temp.fort{background:#313C4B}
+.temp.zone{box-shadow:inset 0 0 0 1.5px var(--laiton)}
+.temp.on{background:var(--nacre);transform:scaleY(1.28)}
+.temp.on.chgt{background:var(--laiton)}
+
+.reglages{display:none;background:var(--ardoise);border:1px solid var(--trait);border-radius:4px;padding:14px;margin-bottom:14px}
+.reglages.ouvert{display:block}
+.champ{margin-bottom:13px}
+.champ:last-child{margin-bottom:0}
+.champ label,.groupe-titre{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--nacre-faible);margin-bottom:6px}
+input[type=text],select{width:100%;background:var(--encre);border:1px solid var(--trait);border-radius:3px;padding:9px 10px;font-family:var(--mono);font-size:15px}
+select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--nacre-faible) 50%),linear-gradient(135deg,var(--nacre-faible) 50%,transparent 50%);background-position:calc(100% - 16px) 18px,calc(100% - 11px) 18px;background-size:5px 5px;background-repeat:no-repeat}
+input[type=text].erreur{border-color:#C4614F}
+.msg-erreur{font-size:12.5px;color:#E08878;margin-top:6px}
+.aide{font-size:12px;color:var(--nacre-faible);margin-top:6px}
+.presets{display:flex;flex-wrap:wrap;gap:5px}
+.preset{font-family:var(--mono);font-size:12px;padding:6px 10px;border:1px solid var(--trait);border-radius:3px;color:var(--nacre);text-align:left}
+.preset em{display:block;font-style:normal;font-size:9.5px;letter-spacing:.1em;color:var(--nacre-faible);margin-top:2px}
+.ligne{display:flex;gap:10px}
+.ligne>*{flex:1}
+.bascule{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:7px 0;border-top:1px solid var(--trait)}
+.bascule span{font-size:14px}
+.interrupteur{width:44px;height:25px;border-radius:999px;background:var(--ardoise-clair);border:1px solid var(--trait);position:relative;flex:0 0 auto}
+.interrupteur::after{content:"";position:absolute;top:3px;left:3px;width:17px;height:17px;border-radius:50%;background:var(--nacre-faible);transition:.16s}
+.interrupteur[aria-pressed="true"]{background:var(--laiton);border-color:var(--laiton)}
+.interrupteur[aria-pressed="true"]::after{left:22px;background:var(--encre)}
+.fichier{display:block;border:1px dashed var(--trait);border-radius:3px;padding:10px;text-align:center;font-family:var(--mono);font-size:12.5px;color:var(--nacre-faible);margin-top:6px}
+.fichier input{display:none}
+.etat-rep{font-size:12px;color:var(--nacre-faible);margin-top:6px}
+
+.transport{position:fixed;left:0;right:0;bottom:0;background:rgba(20,26,36,.94);backdrop-filter:blur(10px);border-top:1px solid var(--trait);padding:11px 14px calc(11px + env(safe-area-inset-bottom))}
+.transport-int{max-width:560px;margin:0 auto;display:flex;align-items:center;gap:12px}
+.jouer{width:54px;height:54px;flex:0 0 auto;border-radius:50%;background:var(--laiton);color:var(--encre);display:grid;place-items:center}
+.jouer svg{width:22px;height:22px;fill:currentColor}
+.jouer[data-on="1"]{background:var(--nacre)}
+.tempo-bloc{flex:1;display:flex;align-items:center;gap:9px}
+.tempo-bloc button{width:34px;height:34px;border:1px solid var(--trait);border-radius:4px;font-family:var(--mono);font-size:17px;color:var(--nacre-faible);line-height:1}
+.tempo-val{font-family:var(--mono);font-size:22px;font-weight:600;min-width:52px;text-align:center;font-variant-numeric:tabular-nums}
+.tempo-val em{display:block;font-style:normal;font-size:9px;letter-spacing:.16em;color:var(--nacre-faible);font-weight:400}
+.minuteur{font-family:var(--mono);font-size:20px;font-variant-numeric:tabular-nums;text-align:right;min-width:60px}
+.minuteur.fini{color:var(--laiton)}
+.minuteur em{display:block;font-style:normal;font-size:9px;letter-spacing:.16em;color:var(--nacre-faible)}
+.pied{font-size:12px;color:var(--nacre-faible);text-align:center;padding:4px 0 10px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}.temp.on{transform:none}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="marque"><b>improvguit</b></div>
+  <button class="lien-reglages" id="btnReglages" aria-expanded="false" aria-controls="reglages">Réglages</button>
+</header>
+
+<nav class="grades" id="grades" aria-label="Grade"></nav>
+
+<section class="reglages" id="reglages">
+  <div class="champ">
+    <span class="groupe-titre">Répertoire</span>
+    <select id="repertoire"><option value="">— aucun répertoire chargé —</option></select>
+    <label class="fichier">Charger un fichier .json<input type="file" id="fichierRep" accept=".json,application/json"></label>
+    <div class="etat-rep" id="etatRep"></div>
+  </div>
+  <div class="champ">
+    <label for="saisieAccords">Boucle d'accords</label>
+    <input type="text" id="saisieAccords" inputmode="text" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="Am7 | D7">
+    <div class="msg-erreur" id="msgErreur" hidden></div>
+    <div class="aide"><kbd>|</kbd> sépare les mesures · plusieurs accords dans une mesure se partagent les temps · <kbd>*4</kbd> tient la mesure 4 fois · <kbd>%</kbd> répète la mesure précédente.</div>
+  </div>
+  <div class="champ">
+    <span class="groupe-titre">Tonique des modèles</span>
+    <select id="tonique"></select>
+  </div>
+  <div class="champ">
+    <span class="groupe-titre">Modèles de boucle</span>
+    <div class="presets" id="presets"></div>
+  </div>
+  <div class="champ ligne">
+    <div>
+      <label for="battues">Temps / mesure</label>
+      <select id="battues"><option>4</option><option>3</option><option>2</option><option>6</option></select>
+    </div>
+    <div>
+      <label for="duree">Séance</label>
+      <select id="duree"><option value="180">3 min</option><option value="300">5 min</option><option value="600">10 min</option><option value="0">Libre</option></select>
+    </div>
+  </div>
+  <div class="champ ligne">
+    <div>
+      <label for="zone">Zone du manche</label>
+      <select id="zone">
+        <option value="0-5">Cases 0–5</option>
+        <option value="3-8">Cases 3–8</option>
+        <option value="5-10">Cases 5–10</option>
+        <option value="7-12">Cases 7–12</option>
+        <option value="0-12">Tout le manche</option>
+      </select>
+    </div>
+    <div id="champGamme">
+      <label for="gamme">Gamme</label>
+      <select id="gamme"></select>
+    </div>
+  </div>
+  <div class="bascule"><span>Accords en fond</span><button class="interrupteur" id="basPad" aria-pressed="true" aria-label="Accords en fond"></button></div>
+  <div class="bascule"><span>Clic du métronome</span><button class="interrupteur" id="basClic" aria-pressed="true" aria-label="Clic du métronome"></button></div>
+  <div class="bascule"><span>Cordes graves à droite</span><button class="interrupteur" id="basMiroir" aria-pressed="false" aria-label="Inverser les cordes"></button></div>
+</section>
+
+<section class="consigne">
+  <h1 id="consigneTitre">Grade 0 — Ancrage</h1>
+  <div id="consigneCorps"></div>
+  <div class="contrainte" id="blocContrainte" hidden>
+    <span id="texteContrainte"></span>
+    <button class="tirer" id="btnTirer" title="Nouvelle contrainte" aria-label="Tirer une nouvelle contrainte">↺</button>
+  </div>
+</section>
+
+<div class="manche-cadre">
+  <div class="manche-entete">
+    <div class="accord-actuel" id="accordActuel">—</div>
+    <div class="entete-droite">
+      <span class="accord-suivant" id="accordSuivant"></span>
+      <span class="position" id="position"></span>
+    </div>
+  </div>
+  <div class="manche-defil"><svg class="manche" id="manche" xmlns="http://www.w3.org/2000/svg"></svg></div>
+  <div class="legende" id="legende"></div>
+</div>
+
+<div class="grille-cadre" id="grilleCadre"><div class="grille" id="grille"></div></div>
+
+<p class="pied">Le répertoire n'est pas embarqué dans le dépôt.</p>
+
+<div class="transport">
+  <div class="transport-int">
+    <button class="jouer" id="btnJouer" data-on="0" aria-label="Démarrer">
+      <svg viewBox="0 0 24 24" id="icone"><path d="M8 5v14l11-7z"/></svg>
+    </button>
+    <div class="tempo-bloc">
+      <button id="tempoMoins" aria-label="Ralentir">−</button>
+      <div class="tempo-val" id="tempoVal">76<em>BPM</em></div>
+      <button id="tempoPlus" aria-label="Accélérer">+</button>
+    </div>
+    <div class="minuteur" id="minuteur">5:00<em>Séance</em></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   1. THÉORIE
+   ============================================================ */
+const NOMS  = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+const FR    = ["Do","Do♯","Ré","Ré♯","Mi","Fa","Fa♯","Sol","Sol♯","La","La♯","Si"];
+const DEGRE = ["1","♭9","9","♭3","3","11","♭5","5","♯5","6","♭7","7"];
+
+const QUALITES = [
+  {a:["m(maj7)","mmaj7","mMaj7","minmaj7","m∆7","m∆","-maj7"], iv:[0,3,7,11]},
+  {a:["maj7","M7","∆7","∆"],            iv:[0,4,7,11]},
+  {a:["m7b5","m7-5","ø","ø7"],          iv:[0,3,6,10]},
+  {a:["dim7","o7","°7"],                iv:[0,3,6,9]},
+  {a:["dim","°"],                       iv:[0,3,6]},
+  {a:["aug","+"],                       iv:[0,4,8]},
+  {a:["maj9","M9"],                     iv:[0,4,7,11,2]},
+  {a:["m9","min9","-9"],                iv:[0,3,7,10,2]},
+  {a:["m11","min11"],                   iv:[0,3,7,10,5]},
+  {a:["m7","min7","-7"],                iv:[0,3,7,10]},
+  {a:["m6","min6"],                     iv:[0,3,7,9]},
+  {a:["m","min","-"],                   iv:[0,3,7]},
+  {a:["7sus4","7sus"],                  iv:[0,5,7,10]},
+  {a:["sus4","sus"],                    iv:[0,5,7]},
+  {a:["sus2"],                          iv:[0,2,7]},
+  {a:["13"],                            iv:[0,4,7,10,9]},
+  {a:["9"],                             iv:[0,4,7,10,2]},
+  {a:["7"],                             iv:[0,4,7,10]},
+  {a:["6"],                             iv:[0,4,7,9]},
+  {a:["5"],                             iv:[0,7]},
+  {a:["","maj","M"],                    iv:[0,4,7]}
+];
+const ALIAS = [];
+QUALITES.forEach(function(q){ q.a.forEach(function(al){ ALIAS.push({al:al, iv:q.iv}); }); });
+ALIAS.sort(function(x,y){ return y.al.length - x.al.length; });
+
+const GAMMES = [
+  {id:"majeur",   nom:"Majeure",              iv:[0,2,4,5,7,9,11]},
+  {id:"mineur",   nom:"Mineure naturelle",    iv:[0,2,3,5,7,8,10]},
+  {id:"dorien",   nom:"Dorien",               iv:[0,2,3,5,7,9,10]},
+  {id:"mixo",     nom:"Mixolydien",           iv:[0,2,4,5,7,9,10]},
+  {id:"phrygien", nom:"Phrygien",             iv:[0,1,3,5,7,8,10]},
+  {id:"pentam",   nom:"Pentatonique mineure", iv:[0,3,5,7,10]},
+  {id:"pentaM",   nom:"Pentatonique majeure", iv:[0,2,4,7,9]},
+  {id:"blues",    nom:"Blues mineure",        iv:[0,3,5,6,7,10]}
+];
+
+function pcDepuisNom(lettre, alter){
+  const base = {C:0,D:2,E:4,F:5,G:7,A:9,B:11}[lettre.toUpperCase()];
+  if(base === undefined) return null;
+  let pc = base;
+  if(alter === "#") pc += 1;
+  if(alter === "b") pc -= 1;
+  return ((pc % 12) + 12) % 12;
+}
+function chercherQualite(suffixe){
+  for(let i=0;i<ALIAS.length;i++){ if(suffixe === ALIAS[i].al) return ALIAS[i].iv; }
+  return null;
+}
+
+/* "Cm(maj7)", "A7(9)", "Bbm7b5" -> {sym, pc, iv, notes} ; null si illisible */
+function lireAccord(txt){
+  const s = String(txt).trim();
+  if(!s) return null;
+  const m = s.match(/^([A-Ga-g])([#b]?)(.*)$/);
+  if(!m) return null;
+  const pc = pcDepuisNom(m[1], m[2]);
+  if(pc === null) return null;
+  const suffixe = m[3].trim();
+  /* 1. appariement exact ; 2. repli en retirant les extensions entre parenthèses */
+  let iv = chercherQualite(suffixe);
+  if(!iv) iv = chercherQualite(suffixe.replace(/\([^)]*\)/g, "").trim());
+  if(!iv) return null;
+  const notes = iv.map(function(n){ return (pc + n) % 12; });
+  return {
+    sym: m[1].toUpperCase() + m[2] + suffixe,
+    pc: pc,
+    iv: iv,
+    notes: notes.filter(function(v,i,a){ return a.indexOf(v) === i; })
+  };
+}
+
+const MAX_MESURES = 64;
+
+/* "Bbm7 Eb7 | Abmaj7 *2 | %" -> {mesures:[[accord,...],...]} ou {erreur} */
+function lireBoucle(txt){
+  const segments = String(txt).split(/[|\n]+/).map(function(s){ return s.trim(); }).filter(Boolean);
+  if(!segments.length) return {erreur:"Saisis au moins une mesure."};
+  const mesures = [];
+  for(let s=0;s<segments.length;s++){
+    let seg = segments[s];
+    let repet = 1;
+    const mult = seg.match(/[*x×]\s*(\d{1,2})\s*$/i);
+    if(mult){ repet = parseInt(mult[1], 10); seg = seg.slice(0, mult.index).trim(); }
+    if(repet < 1 || repet > MAX_MESURES) return {erreur:"Répétition hors bornes dans « " + segments[s] + " »."};
+
+    let contenu;
+    if(seg === "%" || seg === "/" || seg === ""){
+      if(!mesures.length) return {erreur:"« % » ne peut pas ouvrir la boucle."};
+      contenu = mesures[mesures.length - 1];
+    }else{
+      const noms = seg.split(/[\s,]+/).filter(Boolean);
+      if(noms.length > 4) return {erreur:"4 accords maximum par mesure (« " + segments[s] + " »)."};
+      contenu = [];
+      for(let k=0;k<noms.length;k++){
+        const a = lireAccord(noms[k]);
+        if(!a) return {erreur:"Accord illisible : « " + noms[k] + " »."};
+        contenu.push(a);
+      }
+    }
+    for(let r=0;r<repet;r++){
+      mesures.push(contenu);
+      if(mesures.length > MAX_MESURES) return {erreur:MAX_MESURES + " mesures au maximum."};
+    }
+  }
+  return {mesures:mesures};
+}
+
+/* accords distincts, par référence, dans l'ordre */
+function accordsUniques(mesures){
+  const out = [];
+  (mesures || []).forEach(function(m){
+    m.forEach(function(a){ if(out.indexOf(a) < 0) out.push(a); });
+  });
+  return out;
+}
+function notesCommunes(accords){
+  if(!accords || !accords.length) return [];
+  return accords[0].notes.filter(function(pc){
+    return accords.every(function(a){ return a.notes.indexOf(pc) >= 0; });
+  }).sort(function(x,y){ return x - y; });
+}
+function notesMobiles(actuel, suivant){
+  if(!actuel || !suivant) return [];
+  return suivant.notes.filter(function(pc){ return actuel.notes.indexOf(pc) < 0; })
+                      .sort(function(x,y){ return x - y; });
+}
+/* présence d'une classe de hauteur, pondérée par la durée */
+function poidsNotes(mesures){
+  const p = new Array(12).fill(0);
+  (mesures || []).forEach(function(m){
+    m.forEach(function(a){ a.notes.forEach(function(pc){ p[pc] += 1 / m.length; }); });
+  });
+  return p;
+}
+/* note d'ancrage : commune à tous les accords ; sinon la plus présente */
+function noteAncrage(mesures){
+  const com = notesCommunes(accordsUniques(mesures));
+  if(com.length) return com[0];
+  const p = poidsNotes(mesures);
+  let best = 0;
+  for(let i=1;i<12;i++){ if(p[i] > p[best]) best = i; }
+  return best;
+}
+/* cellule de 3 notes : communes d'abord, complétées par les plus présentes */
+function cellule(mesures){
+  const c = notesCommunes(accordsUniques(mesures)).slice(0, 3);
+  if(c.length >= 3) return c;
+  const p = poidsNotes(mesures);
+  const ordre = p.map(function(v,i){ return {pc:i, v:v}; }).sort(function(a,b){ return b.v - a.v; });
+  for(let i=0;i<ordre.length && c.length<3;i++){
+    if(ordre[i].v > 0 && c.indexOf(ordre[i].pc) < 0) c.push(ordre[i].pc);
+  }
+  return c.slice(0, 3);
+}
+/* substitut tritonique d'une dominante, sinon null */
+function substitutTritonique(a){
+  if(!a) return null;
+  if(a.iv.indexOf(4) < 0 || a.iv.indexOf(10) < 0) return null;
+  return NOMS[(a.pc + 6) % 12] + "7";
+}
+
+/* ============================================================
+   2. ÉTAT
+   ============================================================ */
+const CLE = "improvguit.v2";
+const CORDES = [4,9,2,7,11,4];
+const NOMS_CORDES = ["E","A","D","G","B","E"];
+
+const etat = {
+  grade:0, saisie:"Am7 | D7", mesures:[], battues:4, tempo:76,
+  zone:"0-5", duree:300, gamme:"majeur", toniqueModele:0,
+  pad:true, clic:true, miroir:false, contrainte:"", morceau:""
+};
+let repertoire = [];
+
+const CONTRAINTES_G1 = [
+  "Maximum 4 notes par mesure.",
+  "Au moins un temps entier de silence par mesure.",
+  "Ne joue jamais sur le temps 1.",
+  "Commence chaque mesure sur le temps 2.",
+  "Une seule note par mesure, jamais au même endroit.",
+  "Joue uniquement sur les contretemps.",
+  "Alterne : une mesure dense, une mesure vide.",
+  "Trois notes par mesure, jamais deux fois le même rythme."
+];
+const CONTOURS_G2 = [
+  ["monte","monte"], ["monte","descend"], ["descend","monte"],
+  ["descend","descend"], ["reste","monte"], ["monte","reste"], ["descend","reste"]
+];
+const MODELES = [
+  {nom:"I–vi",         g:"G0 · G1 · G2", d:[[0,""],[9,"m"]]},
+  {nom:"I–IV",         g:"G0 · G1",      d:[[0,""],[5,""]]},
+  {nom:"i–♭VII",       g:"G0 · G1 · G4", d:[[0,"m"],[10,""]]},
+  {nom:"i–IV (dorien)",g:"G2 · G4",      d:[[0,"m7"],[5,"7"]]},
+  {nom:"ii–V",         g:"G2 · G3",      d:[[2,"m7"],[7,"7"]]},
+  {nom:"I–vi–ii–V",    g:"G3",           d:[[0,"maj7"],[9,"m7"],[2,"m7"],[7,"7"]]},
+  {nom:"I–V–vi–IV",    g:"G4",           d:[[0,""],[7,""],[9,"m"],[5,""]]},
+  {nom:"I–VI7–ii–V",   g:"G5",           d:[[0,"maj7"],[9,"7"],[2,"m7"],[7,"7"]]}
+];
+const GRADES = [
+  {n:0,  court:"G0",  titre:"Ancrage",          mode:"une"},
+  {n:1,  court:"G1",  titre:"Rythme",           mode:"une"},
+  {n:2,  court:"G2",  titre:"Cellule",          mode:"cellule"},
+  {n:3,  court:"G3",  titre:"Cibles",           mode:"accord"},
+  {n:4,  court:"G4",  titre:"Réservoir",        mode:"gamme"},
+  {n:5,  court:"G5",  titre:"Couplage",         mode:"couplage"},
+  {n:6,  court:"G6",  titre:"Ornementation",    mode:"ornement"},
+  {n:7,  court:"G7",  titre:"Discours",         mode:"accord"},
+  {n:8,  court:"G8",  titre:"Réinterprétation", mode:"accord"},
+  {n:9,  court:"G9",  titre:"Interaction",      mode:"accord"},
+  {n:10, court:"G10", titre:"Voix",             mode:"libre"}
+];
+function grade(){ return GRADES[etat.grade] || GRADES[0]; }
+
+/* ============================================================
+   3. PERSISTANCE
+   ============================================================ */
+function sauver(){
+  try{
+    localStorage.setItem(CLE, JSON.stringify({
+      grade:etat.grade, saisie:etat.saisie, battues:etat.battues, tempo:etat.tempo,
+      zone:etat.zone, duree:etat.duree, gamme:etat.gamme, toniqueModele:etat.toniqueModele,
+      pad:etat.pad, clic:etat.clic, miroir:etat.miroir, morceau:etat.morceau
+    }));
+  }catch(e){}
+}
+function charger(){
+  try{
+    const v = JSON.parse(localStorage.getItem(CLE) || "null");
+    if(v && typeof v === "object"){
+      Object.keys(v).forEach(function(k){ if(k in etat) etat[k] = v[k]; });
+    }
+  }catch(e){}
+}
+
+/* ============================================================
+   4. LIGNE DE TEMPS
+   ============================================================ */
+let timeline = [];
+function construireTimeline(){
+  timeline = [];
+  const B = etat.battues;
+  for(let m=0;m<etat.mesures.length;m++){
+    const acc = etat.mesures[m];
+    for(let t=0;t<B;t++){
+      const idx = acc.length ? Math.min(acc.length - 1, Math.floor(t * acc.length / B)) : 0;
+      timeline.push({
+        i:timeline.length, mesure:m, temps:t, fort:t === 0,
+        accord:acc[idx] || null, debutAccord:false, zoneAtterrissage:false
+      });
+    }
+  }
+  if(!timeline.length) return;
+  for(let i=0;i<timeline.length;i++){
+    const prec = timeline[(i - 1 + timeline.length) % timeline.length];
+    timeline[i].debutAccord = timeline[i].accord !== prec.accord;
+  }
+  if(!timeline.some(function(b){ return b.debutAccord; })) timeline[0].debutAccord = true;
+  for(let i=0;i<timeline.length;i++){
+    timeline[i].zoneAtterrissage = timeline[(i + 1) % timeline.length].debutAccord;
+  }
+}
+/* nombre de temps que dure l'accord commençant au temps i */
+function dureeAccord(i){
+  let n = 1;
+  const a = timeline[i].accord;
+  while(n < timeline.length && timeline[(i + n) % timeline.length].accord === a) n++;
+  return n;
+}
+
+/* ============================================================
+   5. AUDIO
+   ============================================================ */
+let ctx = null, maitre = null;
+let enMarche = false, prochainTemps = 0, pointeur = 0, boucleMinuteur = null;
+let fileAttente = [], tempsAffiche = -1, restant = 0, dernierTic = 0, verrou = null;
+
+function initAudio(){
+  if(ctx) return;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if(!AC) return;
+  ctx = new AC();
+  maitre = ctx.createGain();
+  maitre.gain.value = 0.9;
+  maitre.connect(ctx.destination);
+}
+function clic(t, type){
+  if(!etat.clic || !ctx) return;
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = "square";
+  o.frequency.value = type === "chgt" ? 1760 : (type === "fort" ? 1320 : 880);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(type === "faible" ? 0.10 : 0.20, t + 0.002);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.045);
+  o.connect(g); g.connect(maitre);
+  o.start(t); o.stop(t + 0.06);
+}
+function pad(t, accord, duree){
+  if(!etat.pad || !ctx || !accord) return;
+  const d = Math.min(duree, 12);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.085, t + 0.05);
+  g.gain.setValueAtTime(0.085, t + Math.max(0.1, d - 0.25));
+  g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  g.connect(maitre);
+  accord.notes.forEach(function(pc, k){
+    const midi = 48 + pc + (k === 0 ? 0 : 12);
+    const o = ctx.createOscillator();
+    o.type = "triangle";
+    o.frequency.value = 440 * Math.pow(2, (midi - 69) / 12);
+    o.connect(g);
+    o.start(t); o.stop(t + d + 0.05);
+  });
+}
+function ordonnanceur(){
+  if(!ctx || !timeline.length) return;
+  const parTemps = 60 / etat.tempo;
+  while(prochainTemps < ctx.currentTime + 0.12){
+    const b = timeline[pointeur];
+    if(b){
+      clic(prochainTemps, b.debutAccord ? "chgt" : (b.fort ? "fort" : "faible"));
+      if(b.debutAccord) pad(prochainTemps, b.accord, parTemps * dureeAccord(pointeur));
+      fileAttente.push({i:pointeur, t:prochainTemps});
+    }
+    prochainTemps += parTemps;
+    pointeur = (pointeur + 1) % timeline.length;
+  }
+}
+function boucleVisuelle(){
+  if(!enMarche) return;
+  const now = ctx ? ctx.currentTime : 0;
+  while(fileAttente.length && fileAttente[0].t <= now){
+    tempsAffiche = fileAttente.shift().i;
+    peindreTemps();
+    const b = timeline[tempsAffiche];
+    if(b && b.debutAccord) rendreManche();
+  }
+  if(etat.duree > 0){
+    const ecoule = performance.now();
+    if(ecoule - dernierTic >= 250){
+      dernierTic = ecoule;
+      restant = Math.max(0, restant - 0.25);
+      peindreMinuteur();
+      if(restant <= 0){ arreter(true); return; }
+    }
+  }
+  requestAnimationFrame(boucleVisuelle);
+}
+async function demarrer(){
+  initAudio();
+  if(!ctx || !timeline.length) return;
+  if(ctx.state === "suspended") await ctx.resume();
+  enMarche = true;
+  pointeur = 0; tempsAffiche = -1; fileAttente = [];
+  prochainTemps = ctx.currentTime + 0.08;
+  if(etat.duree > 0 && restant <= 0) restant = etat.duree;
+  dernierTic = performance.now();
+  boucleMinuteur = setInterval(ordonnanceur, 25);
+  requestAnimationFrame(boucleVisuelle);
+  majBoutonJouer();
+  try{ if(navigator.wakeLock) verrou = await navigator.wakeLock.request("screen"); }catch(e){}
+}
+function arreter(fini){
+  enMarche = false;
+  if(boucleMinuteur){ clearInterval(boucleMinuteur); boucleMinuteur = null; }
+  fileAttente = []; tempsAffiche = -1;
+  if(fini) restant = 0;
+  try{ if(verrou){ verrou.release(); verrou = null; } }catch(e){}
+  peindreTemps(); peindreMinuteur(); majBoutonJouer();
+}
+function basculer(){ enMarche ? arreter(false) : demarrer(); }
+
+/* ============================================================
+   6. CE QUE MONTRE LE MANCHE
+   ============================================================ */
+function tempsCourant(){ return tempsAffiche >= 0 ? tempsAffiche : 0; }
+function accordCourant(){ const b = timeline[tempsCourant()]; return b ? b.accord : null; }
+function accordSuivant(){
+  if(!timeline.length) return null;
+  const cour = accordCourant();
+  for(let k=1;k<=timeline.length;k++){
+    const b = timeline[(tempsCourant() + k) % timeline.length];
+    if(b.accord !== cour) return b.accord;
+  }
+  return null;
+}
+function gammeCourante(){
+  return GAMMES.filter(function(g){ return g.id === etat.gamme; })[0] || GAMMES[0];
+}
+function marques(){
+  const m = {};
+  const mode = grade().mode;
+  const cour = accordCourant(), suiv = accordSuivant();
+  if(!cour) return m;
+
+  if(mode === "une"){
+    const pc = noteAncrage(etat.mesures);
+    m[pc] = {c:"var(--laiton)", t:NOMS[pc]};
+    return m;
+  }
+  if(mode === "cellule"){
+    cellule(etat.mesures).forEach(function(pc, i){
+      m[pc] = {c: i === 0 ? "var(--laiton)" : "var(--indigo)", t:NOMS[pc]};
+    });
+    return m;
+  }
+  const poserAccord = function(){
+    cour.iv.forEach(function(n){
+      const pc = (cour.pc + n) % 12;
+      let col = "var(--indigo)";
+      if(n === 0) col = "var(--laiton)";
+      else if(n === 10 || n === 11) col = "var(--vert)";
+      m[pc] = {c:col, t:DEGRE[n]};
+    });
+  };
+  if(mode === "accord"){
+    poserAccord();
+    notesMobiles(cour, suiv).forEach(function(pc){ if(m[pc]) m[pc].halo = true; });
+    return m;
+  }
+  if(mode === "gamme" || mode === "couplage"){
+    const g = gammeCourante();
+    const racine = (etat.mesures.length && etat.mesures[0].length) ? etat.mesures[0][0].pc : cour.pc;
+    g.iv.forEach(function(n){ m[(racine + n) % 12] = {c:"var(--nacre-faible)", t:"", petit:true}; });
+    poserAccord();
+    if(mode === "couplage"){
+      notesMobiles(cour, suiv).forEach(function(pc){
+        if(m[pc]) m[pc].halo = true;
+        else m[pc] = {c:"var(--vert)", t:"", petit:true, halo:true};
+      });
+    }
+    return m;
+  }
+  if(mode === "ornement"){
+    poserAccord();
+    cour.iv.forEach(function(n){
+      const app = (((cour.pc + n - 1) % 12) + 12) % 12;
+      if(!m[app]) m[app] = {c:"var(--vert)", t:"", petit:true};
+    });
+    return m;
+  }
+  poserAccord();
+  return m;
+}
+
+/* ============================================================
+   7. MANCHE (vertical, sillet en haut)
+   ============================================================ */
+function rendreManche(){
+  const svg = document.getElementById("manche");
+  const z = etat.zone.split("-");
+  const c0 = parseInt(z[0], 10), c1 = parseInt(z[1], 10);
+  const nCases = c1 - c0 + 1;
+  const PAS_X = 48, PAS_Y = 56, MG_X = 30, HAUT = 34;
+  const L = MG_X * 2 + PAS_X * 5;
+  const H = HAUT + PAS_Y * nCases + 12;
+  svg.setAttribute("viewBox", "0 0 " + L + " " + H);
+
+  const ordre = etat.miroir ? [5,4,3,2,1,0] : [0,1,2,3,4,5];
+  const x = function(i){ return MG_X + ordre.indexOf(i) * PAS_X; };
+  const y = function(k){ return HAUT + PAS_Y * k; };
+  const m = marques();
+  const p = [];
+
+  p.push('<rect x="'+(MG_X-16)+'" y="'+HAUT+'" width="'+(PAS_X*5+32)+'" height="'+(PAS_Y*nCases)+'" fill="var(--bois)"/>');
+  [3,5,7,9,12].forEach(function(f){
+    if(f < c0 || f > c1) return;
+    const cy = y(f - c0) - PAS_Y / 2;
+    if(f === 12){
+      p.push('<circle cx="'+(MG_X+PAS_X*1.5)+'" cy="'+cy+'" r="5" fill="var(--nacre)" opacity=".16"/>');
+      p.push('<circle cx="'+(MG_X+PAS_X*3.5)+'" cy="'+cy+'" r="5" fill="var(--nacre)" opacity=".16"/>');
+    }else{
+      p.push('<circle cx="'+(MG_X+PAS_X*2.5)+'" cy="'+cy+'" r="5" fill="var(--nacre)" opacity=".16"/>');
+    }
+  });
+  for(let k=0;k<=nCases;k++){
+    const sillet = (c0 === 0 && k === 0);
+    p.push('<line x1="'+(MG_X-16)+'" y1="'+y(k)+'" x2="'+(MG_X+PAS_X*5+16)+'" y2="'+y(k)+
+           '" stroke="'+(sillet?"var(--nacre)":"var(--frette)")+'" stroke-width="'+(sillet?5:2)+'" opacity="'+(sillet?1:.55)+'"/>');
+  }
+  for(let s=0;s<6;s++){
+    p.push('<line x1="'+x(s)+'" y1="'+HAUT+'" x2="'+x(s)+'" y2="'+y(nCases)+
+           '" stroke="var(--corde)" stroke-width="'+(1 + (5-s)*0.34)+'" opacity=".78"/>');
+    p.push('<text x="'+x(s)+'" y="22" text-anchor="middle" font-family="var(--mono)" font-size="12" fill="var(--nacre-faible)">'+NOMS_CORDES[s]+'</text>');
+  }
+  for(let f=c0;f<=c1;f++){
+    if(f === 0) continue;
+    p.push('<text x="'+(MG_X-24)+'" y="'+(y(f-c0)-PAS_Y/2+4)+'" text-anchor="middle" font-family="var(--mono)" font-size="11" fill="var(--nacre-faible)" opacity=".7">'+f+'</text>');
+  }
+  for(let s=0;s<6;s++){
+    for(let f=c0;f<=c1;f++){
+      const mk = m[(CORDES[s] + f) % 12];
+      if(!mk) continue;
+      const cx = x(s);
+      const cy = (f === 0) ? HAUT - 12 : y(f - c0) - PAS_Y / 2;
+      const r = mk.petit ? 6 : 17;
+      if(mk.halo) p.push('<circle cx="'+cx+'" cy="'+cy+'" r="'+(r+5)+'" fill="none" stroke="var(--vert)" stroke-width="2" opacity=".85"/>');
+      p.push('<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="'+mk.c+'"/>');
+      if(mk.t) p.push('<text x="'+cx+'" y="'+(cy+4.5)+'" text-anchor="middle" font-family="var(--mono)" font-size="13" font-weight="600" fill="var(--encre)">'+mk.t+'</text>');
+    }
+  }
+  svg.innerHTML = p.join("");
+
+  const cour = accordCourant(), suiv = accordSuivant();
+  document.getElementById("accordActuel").textContent = cour ? cour.sym : "—";
+  let droite = (suiv && suiv !== cour) ? "puis " + suiv.sym : "";
+  if(etat.grade === 8){
+    const sub = substitutTritonique(cour);
+    if(sub) droite = "substitut " + sub;
+  }
+  document.getElementById("accordSuivant").textContent = droite;
+  const b = timeline[tempsCourant()];
+  document.getElementById("position").textContent =
+    etat.mesures.length ? "mes. " + ((b ? b.mesure : 0) + 1) + " / " + etat.mesures.length : "";
+  rendreLegende();
+}
+function rendreLegende(){
+  const mode = grade().mode;
+  const base = '<span><i style="background:var(--laiton)"></i>fondamentale</span><span><i style="background:var(--indigo)"></i>3ce · 5te</span><span><i style="background:var(--vert)"></i>7e</span>';
+  const halo = '<span><i style="box-shadow:0 0 0 2px var(--vert);background:transparent"></i>note mobile</span>';
+  let h;
+  if(mode === "une")           h = '<span><i style="background:var(--laiton)"></i>note d\'ancrage</span>';
+  else if(mode === "cellule")  h = '<span><i style="background:var(--laiton)"></i>note pivot</span><span><i style="background:var(--indigo)"></i>cellule</span>';
+  else if(mode === "ornement") h = base + '<span><i style="background:var(--vert);width:6px;height:6px"></i>approche chromatique</span>';
+  else if(mode === "gamme")    h = '<span><i style="background:var(--laiton)"></i>fondamentale</span><span><i style="background:var(--indigo)"></i>notes d\'accord</span><span><i style="background:var(--nacre-faible);width:6px;height:6px"></i>notes de passage</span>';
+  else if(mode === "couplage") h = '<span><i style="background:var(--laiton)"></i>fondamentale</span><span><i style="background:var(--indigo)"></i>notes d\'accord</span><span><i style="background:var(--nacre-faible);width:6px;height:6px"></i>gamme</span>' + halo;
+  else if(mode === "libre")    h = base;
+  else                         h = base + halo;
+  document.getElementById("legende").innerHTML = h;
+}
+
+/* ============================================================
+   8. GRILLE
+   ============================================================ */
+function rendreGrille(){
+  const B = etat.battues;
+  let h = "";
+  for(let m=0;m<etat.mesures.length;m++){
+    const debut = timeline[m * B];
+    const change = !!(debut && debut.debutAccord);
+    const noms = [];
+    etat.mesures[m].forEach(function(a){ if(noms[noms.length-1] !== a.sym) noms.push(a.sym); });
+    h += '<div class="mesure'+(change?" change":"")+'" data-m="'+m+'"><div class="mesure-nom">'+
+         (change ? noms.join(" ") : "·") + '</div><div class="temps">';
+    for(let t=0;t<B;t++){
+      const i = m * B + t;
+      const b = timeline[i];
+      const cls = ["temp"];
+      if(b && b.fort) cls.push("fort");
+      if(b && b.zoneAtterrissage && etat.grade >= 3) cls.push("zone");
+      h += '<div class="'+cls.join(" ")+'" data-i="'+i+'"></div>';
+    }
+    h += '</div></div>';
+  }
+  document.getElementById("grille").innerHTML = h;
+  derniereMesure = -1;
+  peindreTemps();
+}
+let derniereMesure = -1;
+function peindreTemps(){
+  const cases = document.querySelectorAll(".temp");
+  for(let k=0;k<cases.length;k++){
+    const el = cases[k];
+    const i = parseInt(el.dataset.i, 10);
+    const actif = i === tempsAffiche;
+    el.classList.toggle("on", actif);
+    const b = timeline[i];
+    el.classList.toggle("chgt", actif && !!(b && b.debutAccord));
+  }
+  const b = timeline[tempsAffiche];
+  if(b && b.mesure !== derniereMesure){
+    derniereMesure = b.mesure;
+    const bloc = document.querySelector('.mesure[data-m="' + b.mesure + '"]');
+    if(bloc && bloc.scrollIntoView){ try{ bloc.scrollIntoView({block:"nearest"}); }catch(e){} }
+  }
+}
+
+/* ============================================================
+   9. CONSIGNE
+   ============================================================ */
+function rendreConsigne(){
+  const G = grade();
+  document.getElementById("consigneTitre").textContent = "Grade " + G.n + " — " + G.titre;
+  const uniques = accordsUniques(etat.mesures);
+  const cour = uniques[0] || null, suiv = uniques[1] || null;
+  const anc = noteAncrage(etat.mesures);
+  let h = "", contrainte = null;
+
+  if(etat.grade === 0){
+    h = "<p>Joue <kbd>"+NOMS[anc]+"</kbd> ("+FR[anc]+") sur le temps 1 de chaque accord. Rien d'autre.</p>"
+      + "<p>Objectif : tomber juste sur le changement, les yeux fermés, sans compter.</p>";
+    if(uniques.length < 2) h += "<p>Cette boucle n'a qu'un accord : il n'y a pas de changement à repérer. Le grade 1 lui conviendra mieux.</p>";
+  }
+  else if(etat.grade === 1){
+    h = "<p>Toujours la seule note <kbd>"+NOMS[anc]+"</kbd>. Placement, durée, silence et attaque sont libres.</p>";
+    contrainte = etat.contrainte || CONTRAINTES_G1[0];
+  }
+  else if(etat.grade === 2){
+    const c = cellule(etat.mesures);
+    h = "<p>Trois notes : <kbd>"+c.map(function(pc){ return NOMS[pc]; }).join("</kbd> <kbd>")+"</kbd>. Libre sur l'ordre et le rythme.</p>";
+    contrainte = "Contour à réaliser : " + (etat.contrainte || CONTOURS_G2[0].join(" puis ")) + ".";
+  }
+  else if(etat.grade === 3){
+    h = "<p>Uniquement les notes de l'accord en cours. Au moment du changement, atterris sur une note du <em>nouvel</em> accord.</p>";
+    const mob = notesMobiles(cour, suiv);
+    if(mob.length) h += "<p>De "+cour.sym+" vers "+suiv.sym+", les notes qui bougent sont <kbd>"+mob.map(function(pc){ return NOMS[pc]; }).join("</kbd> <kbd>")+"</kbd>. Ce sont elles qui font entendre le changement.</p>";
+    else if(suiv) h += "<p>Aucune note ne bouge entre les deux premiers accords : la boucle est statique pour ce grade.</p>";
+    else h += "<p>Un seul accord dans cette boucle : rien à cibler.</p>";
+  }
+  else if(etat.grade === 4){
+    const g = gammeCourante();
+    h = "<p>Une seule gamme sur toute la boucle : <kbd>"+NOMS[cour ? cour.pc : 0]+" "+g.nom.toLowerCase()+"</kbd>. Mouvement libre.</p>"
+      + "<p>Le piège de ce grade est le remplissage. Laisse au moins un temps de silence par mesure.</p>";
+  }
+  else if(etat.grade === 5){
+    const g = gammeCourante();
+    h = "<p>Circule dans <kbd>"+NOMS[cour ? cour.pc : 0]+" "+g.nom.toLowerCase()+"</kbd>, mais contrôle où tu tombes sur les temps forts.</p>"
+      + "<p>Les notes cerclées de vert sortent de la gamme : ce sont elles qui trahissent l'accord hors tonalité. Vise-les au changement.</p>";
+  }
+  else if(etat.grade === 6){
+    h = "<p>Chaque note d'accord peut être approchée par le demi-ton en dessous, marqué en petit sur le manche.</p>"
+      + "<p>Encercle la cible : demi-ton au-dessus, demi-ton en dessous, puis la cible sur le temps.</p>";
+  }
+  else if(etat.grade === 7){
+    h = "<p>Construis un chorus entier : un motif, son développement, une question, une réponse, une respiration.</p>"
+      + "<p>Forme de "+etat.mesures.length+" mesures. Repère ton point de tension et garde de la matière pour lui.</p>";
+    contrainte = "Ouvre par un motif de deux mesures, puis ne joue plus que ses variations.";
+  }
+  else if(etat.grade === 8){
+    h = "<p>L'harmonie devient négociable : substitutions, superpositions, sorties assumées puis résolues.</p>";
+    const sub = substitutTritonique(cour);
+    h += sub
+      ? "<p>Sur <kbd>"+cour.sym+"</kbd>, le substitut tritonique est <kbd>"+sub+"</kbd> : mêmes 3ce et 7e, fondamentale à un demi-ton de la cible.</p>"
+      : "<p>Pas de dominante en tête de boucle. Cherche les V7 dans la grille : ce sont les seuls points substituables.</p>";
+  }
+  else if(etat.grade === 9){
+    h = "<p>Ce grade ne se travaille pas seul. Coupe les accords en fond, lance un playback à pistes séparées, et réponds à ce que tu entends.</p>"
+      + "<p>L'app ne garde ici qu'un rôle de repère harmonique.</p>";
+  }
+  else{
+    h = "<p>Aucune contrainte. Les grades précédents sont censés jouer tout seuls.</p>";
+  }
+
+  document.getElementById("consigneCorps").innerHTML = h;
+  document.getElementById("blocContrainte").hidden = !contrainte;
+  if(contrainte) document.getElementById("texteContrainte").textContent = contrainte;
+}
+function tirerContrainte(){
+  if(etat.grade === 1) etat.contrainte = CONTRAINTES_G1[Math.floor(Math.random()*CONTRAINTES_G1.length)];
+  else if(etat.grade === 2) etat.contrainte = CONTOURS_G2[Math.floor(Math.random()*CONTOURS_G2.length)].join(" puis ");
+  rendreConsigne();
+}
+
+/* ============================================================
+   10. RÉPERTOIRE (externe — jamais dans le dépôt)
+   ============================================================ */
+function poserRepertoire(data, origine){
+  const etatEl = document.getElementById("etatRep");
+  const liste = (data && Array.isArray(data.morceaux)) ? data.morceaux : null;
+  if(!liste){ if(etatEl) etatEl.textContent = "Fichier illisible : clé « morceaux » attendue."; return false; }
+  repertoire = liste.filter(function(m){ return m && m.titre && m.mesures; });
+  const sel = document.getElementById("repertoire");
+  let h = '<option value="">— saisie libre —</option>';
+  for(let g=0;g<=10;g++){
+    const lot = repertoire.filter(function(m){ return Number(m.grade) === g; });
+    if(!lot.length) continue;
+    h += '<optgroup label="G'+g+' — '+(GRADES[g] ? GRADES[g].titre : "")+'">';
+    lot.forEach(function(m){
+      h += '<option value="'+repertoire.indexOf(m)+'">'+(m.code ? m.code+" · " : "")+m.titre+'</option>';
+    });
+    h += '</optgroup>';
+  }
+  sel.innerHTML = h;
+  if(etatEl) etatEl.textContent = repertoire.length + " morceaux chargés" + (origine ? " (" + origine + ")" : "") + ".";
+  if(etat.morceau){
+    const trouve = repertoire.filter(function(m){ return (m.code || m.titre) === etat.morceau; })[0];
+    if(trouve) sel.value = String(repertoire.indexOf(trouve));
+  }
+  return true;
+}
+function choisirMorceau(i){
+  const m = repertoire[i];
+  if(!m) return;
+  if(m.battues) etat.battues = Number(m.battues);
+  if(m.tempo)   etat.tempo   = Number(m.tempo);
+  if(m.gamme)   etat.gamme   = m.gamme;
+  if(m.grade !== undefined) etat.grade = Math.max(0, Math.min(10, Number(m.grade)));
+  etat.morceau = m.code || m.titre;
+  etat.contrainte = "";
+  document.getElementById("battues").value = String(etat.battues);
+  document.getElementById("gamme").value = etat.gamme;
+  document.getElementById("saisieAccords").value = m.mesures;
+  peindreTempo(); rendreGrades(); majChampGamme();
+  appliquerSaisie(m.mesures);
+}
+function chargerRepertoireDistant(){
+  if(typeof fetch !== "function") return;
+  fetch("repertoire.json", {cache:"no-store"})
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(d){ if(d) poserRepertoire(d, "repertoire.json"); })
+    .catch(function(){});
+}
+
+/* ============================================================
+   11. INTERFACE
+   ============================================================ */
+function majBoutonJouer(){
+  const b = document.getElementById("btnJouer");
+  b.dataset.on = enMarche ? "1" : "0";
+  b.setAttribute("aria-label", enMarche ? "Arrêter" : "Démarrer");
+  document.getElementById("icone").innerHTML = enMarche
+    ? '<path d="M6 6h4v12H6zm8 0h4v12h-4z"/>' : '<path d="M8 5v14l11-7z"/>';
+}
+function peindreMinuteur(){
+  const el = document.getElementById("minuteur");
+  if(etat.duree === 0){ el.innerHTML = "libre<em>Séance</em>"; el.classList.remove("fini"); return; }
+  const s = Math.ceil(restant > 0 ? restant : etat.duree);
+  const mm = Math.floor(s / 60), ss = s % 60;
+  el.innerHTML = mm + ":" + (ss < 10 ? "0" : "") + ss + "<em>Séance</em>";
+  el.classList.toggle("fini", restant > 0 && restant <= 30);
+}
+function peindreTempo(){ document.getElementById("tempoVal").innerHTML = etat.tempo + "<em>BPM</em>"; }
+function rendreGrades(){
+  document.getElementById("grades").innerHTML = GRADES.map(function(g){
+    return '<button class="grade" data-g="'+g.n+'" aria-pressed="'+(g.n===etat.grade)+'">'+g.court+' · '+g.titre+'</button>';
+  }).join("");
+}
+function rendreModeles(){
+  document.getElementById("presets").innerHTML = MODELES.map(function(m,i){
+    return '<button class="preset" data-m="'+i+'">'+m.nom+'<em>'+m.g+'</em></button>';
+  }).join("");
+}
+function appliquerModele(i){
+  const m = MODELES[i], t = etat.toniqueModele;
+  const txt = m.d.map(function(d){ return NOMS[(t + d[0]) % 12] + d[1]; }).join(" | ");
+  document.getElementById("saisieAccords").value = txt;
+  etat.morceau = "";
+  document.getElementById("repertoire").value = "";
+  appliquerSaisie(txt);
+}
+function appliquerSaisie(txt){
+  const r = lireBoucle(txt);
+  const champ = document.getElementById("saisieAccords");
+  const msg = document.getElementById("msgErreur");
+  if(r.erreur){
+    champ.classList.add("erreur");
+    msg.hidden = false; msg.textContent = r.erreur;
+    return false;
+  }
+  champ.classList.remove("erreur");
+  msg.hidden = true;
+  etat.saisie = txt;
+  etat.mesures = r.mesures;
+  reconstruire();
+  return true;
+}
+function reconstruire(){
+  construireTimeline();
+  if(enMarche){ pointeur = 0; fileAttente = []; tempsAffiche = -1; }
+  rendreGrille(); rendreManche(); rendreConsigne(); sauver();
+}
+function majChampGamme(){
+  const m = grade().mode;
+  document.getElementById("champGamme").style.visibility =
+    (m === "gamme" || m === "couplage") ? "visible" : "hidden";
+}
+function remplirSelects(){
+  const t = document.getElementById("tonique");
+  t.innerHTML = NOMS.map(function(n,i){ return '<option value="'+i+'">'+n+" ("+FR[i]+")</option>"; }).join("");
+  t.value = String(etat.toniqueModele);
+  const g = document.getElementById("gamme");
+  g.innerHTML = GAMMES.map(function(x){ return '<option value="'+x.id+'">'+x.nom+"</option>"; }).join("");
+  g.value = etat.gamme;
+  document.getElementById("battues").value = String(etat.battues);
+  document.getElementById("zone").value = etat.zone;
+  document.getElementById("duree").value = String(etat.duree);
+  document.getElementById("saisieAccords").value = etat.saisie;
+  [["basPad","pad"],["basClic","clic"],["basMiroir","miroir"]].forEach(function(p){
+    const el = document.getElementById(p[0]);
+    if(el) el.setAttribute("aria-pressed", String(!!etat[p[1]]));
+  });
+}
+function brancher(){
+  document.getElementById("btnJouer").addEventListener("click", basculer);
+  document.getElementById("tempoMoins").addEventListener("click", function(){ etat.tempo = Math.max(40, etat.tempo-2); peindreTempo(); sauver(); });
+  document.getElementById("tempoPlus").addEventListener("click", function(){ etat.tempo = Math.min(260, etat.tempo+2); peindreTempo(); sauver(); });
+  document.getElementById("btnReglages").addEventListener("click", function(){
+    const ouvert = document.getElementById("reglages").classList.toggle("ouvert");
+    this.setAttribute("aria-expanded", String(ouvert));
+  });
+  document.getElementById("grades").addEventListener("click", function(e){
+    const b = e.target.closest(".grade"); if(!b) return;
+    etat.grade = parseInt(b.dataset.g, 10);
+    etat.contrainte = "";
+    rendreGrades(); majChampGamme(); rendreGrille(); rendreManche(); rendreConsigne(); sauver();
+  });
+  document.getElementById("presets").addEventListener("click", function(e){
+    const b = e.target.closest(".preset"); if(!b) return;
+    appliquerModele(parseInt(b.dataset.m, 10));
+  });
+  document.getElementById("repertoire").addEventListener("change", function(){
+    if(this.value === ""){ etat.morceau = ""; sauver(); return; }
+    choisirMorceau(parseInt(this.value, 10));
+  });
+  document.getElementById("fichierRep").addEventListener("change", function(){
+    const f = this.files && this.files[0];
+    if(!f) return;
+    const lecteur = new FileReader();
+    lecteur.onload = function(){
+      try{ poserRepertoire(JSON.parse(String(lecteur.result)), f.name); }
+      catch(err){ document.getElementById("etatRep").textContent = "JSON invalide."; }
+    };
+    lecteur.readAsText(f);
+  });
+  document.getElementById("saisieAccords").addEventListener("change", function(){
+    etat.morceau = "";
+    document.getElementById("repertoire").value = "";
+    appliquerSaisie(this.value);
+  });
+  document.getElementById("tonique").addEventListener("change", function(){ etat.toniqueModele = parseInt(this.value,10); sauver(); });
+  document.getElementById("battues").addEventListener("change", function(){ etat.battues = parseInt(this.value,10); reconstruire(); });
+  document.getElementById("zone").addEventListener("change", function(){ etat.zone = this.value; rendreManche(); sauver(); });
+  document.getElementById("duree").addEventListener("change", function(){ etat.duree = parseInt(this.value,10); restant = 0; peindreMinuteur(); sauver(); });
+  document.getElementById("gamme").addEventListener("change", function(){ etat.gamme = this.value; rendreManche(); rendreConsigne(); sauver(); });
+  document.getElementById("btnTirer").addEventListener("click", tirerContrainte);
+  [["basPad","pad"],["basClic","clic"],["basMiroir","miroir"]].forEach(function(p){
+    document.getElementById(p[0]).addEventListener("click", function(){
+      etat[p[1]] = !etat[p[1]];
+      this.setAttribute("aria-pressed", String(etat[p[1]]));
+      if(p[1] === "miroir") rendreManche();
+      sauver();
+    });
+  });
+  document.addEventListener("keydown", function(e){
+    if(e.code === "Space" && !/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)){ e.preventDefault(); basculer(); }
+  });
+  document.addEventListener("visibilitychange", function(){ if(document.hidden && enMarche) arreter(false); });
+}
+function init(){
+  charger();
+  const r = lireBoucle(etat.saisie);
+  etat.mesures = r.erreur ? lireBoucle("Am7 | D7").mesures : r.mesures;
+  remplirSelects();
+  rendreGrades(); rendreModeles(); majChampGamme();
+  construireTimeline();
+  rendreGrille(); rendreManche(); rendreConsigne();
+  peindreTempo(); peindreMinuteur(); majBoutonJouer();
+  brancher();
+  chargerRepertoireDistant();
+}
+if(typeof document !== "undefined" && document.getElementById("manche")) init();
+
+if(typeof module !== "undefined" && module.exports){
+  module.exports = {lireAccord, lireBoucle, accordsUniques, notesCommunes, notesMobiles,
+                    cellule, noteAncrage, substitutTritonique, GAMMES, GRADES, NOMS, MAX_MESURES};
+}
+</script>
+</body>
+</html>
