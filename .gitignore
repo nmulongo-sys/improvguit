@@ -1,0 +1,8 @@
+# Le répertoire pédagogique ne va jamais dans le dépôt.
+repertoire.json
+*.repertoire.json
+
+# Validation locale
+node_modules/
+test.js
+index.v*.html
