@@ -1,0 +1,12 @@
+{
+  "name": "improvguit",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Entraîneur d'improvisation à la guitare, organisé en grades. L'app est autonome dans index.html ; ce manifeste ne sert qu'à la validation.",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "devDependencies": {
+    "jsdom": "^24.0.0"
+  }
+}
