@@ -258,8 +258,6 @@ t("interrupteur du bourdon présent", !!doc.getElementById("basBourdon"));
 eq("bourdon coupé par défaut", doc.getElementById("basBourdon").getAttribute("aria-pressed"), "false");
 eq("etat.bourdon vaut false au départ", F.etat.bourdon, false);
 t("le bourdon est sauvegardé", /bourdon:etat\.bourdon/.test(HTML));
-t("le bourdon ne sonne qu'en tête de boucle", /pointeur === 0\) bourdon\(/.test(HTML));
-t("le bourdon n'impose pas de tierce", !/bourdon[\s\S]{0,600}pc \+ 4/.test(HTML));
 /* le bourdon bascule comme les autres interrupteurs */
 doc.getElementById("basBourdon").dispatchEvent(new win.Event("click", { bubbles: true }));
 eq("clic : bourdon activé", F.etat.bourdon, true);
@@ -464,13 +462,15 @@ win.eval(`
   };
 `);
 
-function jouerUnTour(txt, battues, sub, tempo) {
-  win.eval("window.__evts = [];");
+function jouerUnTour(txt, battues, sub, tempo, opts) {
+  opts = opts || {};
+  win.eval("window.__evts = []; window.__rampes = [];");
   F.etat.battues = battues;
   F.etat.tempo = tempo || 60;
   F.etat.subdivision = sub;
-  F.etat.clic = true;
-  F.etat.pad = false;
+  F.etat.clic = ("clic" in opts) ? opts.clic : true;
+  F.etat.pad = ("pad" in opts) ? opts.pad : false;
+  F.etat.bourdon = ("bourdon" in opts) ? opts.bourdon : false;
   const res = F.lireBoucle(txt, battues);
   F.etat.mesures = res.mesures;
   F.construireTimeline();
@@ -520,6 +520,47 @@ win.eval("window.__rampes = []; arreter(false);");
 const rampes = win.eval("window.__rampes.slice()");
 t("l'arrêt annule les valeurs programmées", rampes.some(function (r) { return r[0] === "annule"; }));
 t("l'arrêt ramène le maître à zéro", rampes.some(function (r) { return r[0] === "lin" && r[1] <= 0.001; }));
+
+/* --- Bourdon : une tenue par tour de boucle, sur la tonique modale --- */
+const HZ = pc => 440 * Math.pow(2, ((36 + pc) - 69) / 12);
+const arrondi = (x, n) => Math.round(x * n) / n;
+
+evts = jouerUnTour("Cm7 | F7", 4, 1, 60, { clic:false, bourdon:false });
+eq("bourdon coupé : rien ne sonne", evts.length, 0);
+
+evts = jouerUnTour("Cm7 | F7", 4, 1, 60, { clic:false, bourdon:true });
+eq("bourdon actif : 2 oscillateurs pour un tour", evts.length, 2);
+eq("les deux partent en tête de boucle", evts[0].t === 0 && evts[1].t === 0, true);
+eq("hauteur = Do2, la tonique modale et non Fa", arrondi(evts[0].f, 100), arrondi(HZ(0), 100));
+eq("le second est à l'octave", Math.round(evts[1].f / evts[0].f), 2);
+
+evts = jouerUnTour("Am7 | D7", 4, 1, 60, { clic:false, bourdon:true });
+eq("Am7 | D7 : bourdon sur La2", arrondi(evts[0].f, 100), arrondi(HZ(9), 100));
+
+/* quatre mesures : toujours une seule tenue, pas une par mesure */
+evts = jouerUnTour("C | G | Am | F", 4, 1, 60, { clic:false, bourdon:true });
+eq("4 mesures : une seule tenue", evts.length, 2);
+eq("elle part sur la première mesure", evts[0].t, 0);
+
+/* le bourdon s'ajoute aux clics sans les perturber */
+evts = jouerUnTour("C | G", 4, 1, 60, { clic:true, bourdon:true });
+eq("8 clics + 2 oscillateurs de bourdon", evts.length, 10);
+
+/* niveau : jamais au-dessus de la nappe */
+evts = jouerUnTour("Cm7 | F7", 4, 1, 60, { clic:false, bourdon:true });
+const cibles = win.eval("window.__rampes.slice()")
+  .filter(function(r){ return r[0] === "exp" && r[1] > 0.001; })
+  .map(function(r){ return r[1]; });
+eq("le bourdon monte au niveau de la nappe", Math.max.apply(null, cibles), 0.085);
+t("le bourdon ne dépasse pas la nappe", Math.max.apply(null, cibles) <= 0.085);
+
+/* aucune tierce : le bourdon pose la tonique, la nappe donne le mode */
+evts = jouerUnTour("Cm7 | F7", 4, 1, 60, { clic:false, bourdon:true });
+t("aucune tierce dans le bourdon",
+  evts.every(function(e){ return Math.abs(e.f - HZ(3)) > 1 && Math.abs(e.f - HZ(4)) > 1; }));
+
+F.etat.bourdon = false;
+
 
 /* ------------------------------------------------------------------
    Rapport
