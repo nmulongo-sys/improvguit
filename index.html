@@ -135,7 +135,7 @@ input[type=text].erreur{border-color:#C4614F}
     <label for="saisieAccords">Boucle d'accords</label>
     <input type="text" id="saisieAccords" inputmode="text" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="Am7 | D7">
     <div class="msg-erreur" id="msgErreur" hidden></div>
-    <div class="aide"><kbd>|</kbd> sépare les mesures · plusieurs accords dans une mesure se partagent les temps · <kbd>*4</kbd> tient la mesure 4 fois · <kbd>%</kbd> répète la mesure précédente.</div>
+    <div class="aide"><kbd>|</kbd> sépare les mesures · plusieurs accords dans une mesure se partagent les temps · <kbd>_</kbd> prolonge l'accord précédent d'un temps (<kbd>C _ _ G</kbd> = 3 temps + 1) · <kbd>*4</kbd> tient la mesure 4 fois · <kbd>%</kbd> répète la mesure précédente. Jamais plus d'emplacements que de temps.</div>
   </div>
   <div class="champ">
     <span class="groupe-titre">Tonique des modèles</span>
@@ -151,11 +151,19 @@ input[type=text].erreur{border-color:#C4614F}
       <select id="battues"><option>4</option><option>3</option><option>2</option><option>6</option></select>
     </div>
     <div>
-      <label for="duree">Séance</label>
-      <select id="duree"><option value="180">3 min</option><option value="300">5 min</option><option value="600">10 min</option><option value="0">Libre</option></select>
+      <label for="subdivision">Subdivision</label>
+      <select id="subdivision">
+        <option value="1">Aucune</option>
+        <option value="2">Binaire ÷2</option>
+        <option value="3">Ternaire ÷3</option>
+      </select>
     </div>
   </div>
   <div class="champ ligne">
+    <div>
+      <label for="duree">Séance</label>
+      <select id="duree"><option value="180">3 min</option><option value="300">5 min</option><option value="600">10 min</option><option value="0">Libre</option></select>
+    </div>
     <div>
       <label for="zone">Zone du manche</label>
       <select id="zone">
@@ -166,10 +174,10 @@ input[type=text].erreur{border-color:#C4614F}
         <option value="0-12">Tout le manche</option>
       </select>
     </div>
-    <div id="champGamme">
-      <label for="gamme">Gamme</label>
-      <select id="gamme"></select>
-    </div>
+  </div>
+  <div class="champ" id="champGamme">
+    <label for="gamme">Gamme</label>
+    <select id="gamme"></select>
   </div>
   <div class="bascule"><span>Accords en fond</span><button class="interrupteur" id="basPad" aria-pressed="true" aria-label="Accords en fond"></button></div>
   <div class="bascule"><span>Clic du métronome</span><button class="interrupteur" id="basClic" aria-pressed="true" aria-label="Clic du métronome"></button></div>
@@ -300,8 +308,16 @@ function lireAccord(txt){
 
 const MAX_MESURES = 64;
 
-/* "Bbm7 Eb7 | Abmaj7 *2 | %" -> {mesures:[[accord,...],...]} ou {erreur} */
-function lireBoucle(txt){
+/* Un emplacement valant « _ » prolonge l'emplacement précédent : on y repousse
+   la MÊME référence d'objet, ce qui suffit à faire un accord tenu plutôt que
+   rejoué (construireTimeline et dureeAccord comparent les accords par référence). */
+const PROLONGE = /^[_.]$/;
+
+/* "Bbm7 Eb7 | C _ _ G | Abmaj7 *2 | %" -> {mesures:[[accord,...],...]} ou {erreur}
+   Le nombre d'emplacements d'une mesure ne peut pas dépasser le nombre de temps :
+   au-delà, la correspondance emplacement→temps en perdrait silencieusement. */
+function lireBoucle(txt, battues){
+  const B = Math.max(1, Math.min(MAX_MESURES, Number(battues) || 4));
   const segments = String(txt).split(/[|\n]+/).map(function(s){ return s.trim(); }).filter(Boolean);
   if(!segments.length) return {erreur:"Saisis au moins une mesure."};
   const mesures = [];
@@ -318,9 +334,22 @@ function lireBoucle(txt){
       contenu = mesures[mesures.length - 1];
     }else{
       const noms = seg.split(/[\s,]+/).filter(Boolean);
-      if(noms.length > 4) return {erreur:"4 accords maximum par mesure (« " + segments[s] + " »)."};
+      if(noms.length > B) return {erreur:B + " emplacements au maximum par mesure à " + B + " temps (« " + segments[s] + " »)."};
       contenu = [];
       for(let k=0;k<noms.length;k++){
+        if(PROLONGE.test(noms[k])){
+          /* prolongation depuis l'emplacement précédent, ou depuis la dernière
+             mesure quand « _ » ouvre la mesure (tenue par-dessus la barre) */
+          let ref = null;
+          if(contenu.length) ref = contenu[contenu.length - 1];
+          else if(mesures.length){
+            const prec = mesures[mesures.length - 1];
+            ref = prec.length ? prec[prec.length - 1] : null;
+          }
+          if(!ref) return {erreur:"« _ » ne peut pas ouvrir la boucle (« " + segments[s] + " »)."};
+          contenu.push(ref);
+          continue;
+        }
         const a = lireAccord(noms[k]);
         if(!a) return {erreur:"Accord illisible : « " + noms[k] + " »."};
         contenu.push(a);
@@ -398,7 +427,7 @@ const NOMS_CORDES = ["E","A","D","G","B","E"];
 const etat = {
   grade:0, saisie:"Am7 | D7", mesures:[], battues:4, tempo:76,
   zone:"0-5", duree:300, gamme:"majeur", toniqueModele:0,
-  pad:true, clic:true, miroir:false, contrainte:"", morceau:""
+  subdivision:1, pad:true, clic:true, miroir:false, contrainte:"", morceau:""
 };
 let repertoire = [];
 
@@ -449,6 +478,7 @@ function sauver(){
     localStorage.setItem(CLE, JSON.stringify({
       grade:etat.grade, saisie:etat.saisie, battues:etat.battues, tempo:etat.tempo,
       zone:etat.zone, duree:etat.duree, gamme:etat.gamme, toniqueModele:etat.toniqueModele,
+      subdivision:etat.subdivision,
       pad:etat.pad, clic:etat.clic, miroir:etat.miroir, morceau:etat.morceau
     }));
   }catch(e){}
@@ -513,14 +543,15 @@ function initAudio(){
   maitre.gain.value = 0.9;
   maitre.connect(ctx.destination);
 }
+const VOLUME_CLIC = {chgt:0.20, fort:0.20, faible:0.10, sub:0.045};
 function clic(t, type){
   if(!etat.clic || !ctx) return;
   const o = ctx.createOscillator(), g = ctx.createGain();
   o.type = "square";
-  o.frequency.value = type === "chgt" ? 1760 : (type === "fort" ? 1320 : 880);
+  o.frequency.value = type === "chgt" ? 1760 : (type === "fort" ? 1320 : (type === "sub" ? 660 : 880));
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(type === "faible" ? 0.10 : 0.20, t + 0.002);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.045);
+  g.gain.exponentialRampToValueAtTime(VOLUME_CLIC[type] || 0.20, t + 0.002);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + (type === "sub" ? 0.028 : 0.045));
   o.connect(g); g.connect(maitre);
   o.start(t); o.stop(t + 0.06);
 }
@@ -549,6 +580,9 @@ function ordonnanceur(){
     const b = timeline[pointeur];
     if(b){
       clic(prochainTemps, b.debutAccord ? "chgt" : (b.fort ? "fort" : "faible"));
+      /* subdivisions : le temps reste l'unité de la timeline, seul le clic se divise */
+      const sub = etat.subdivision === 3 ? 3 : (etat.subdivision === 2 ? 2 : 1);
+      for(let k=1;k<sub;k++) clic(prochainTemps + parTemps * k / sub, "sub");
       if(b.debutAccord) pad(prochainTemps, b.accord, parTemps * dureeAccord(pointeur));
       fileAttente.push({i:pointeur, t:prochainTemps});
     }
@@ -580,6 +614,9 @@ async function demarrer(){
   initAudio();
   if(!ctx || !timeline.length) return;
   if(ctx.state === "suspended") await ctx.resume();
+  /* le maître est coupé à l'arrêt : on le rouvre avant de reprendre */
+  maitre.gain.cancelScheduledValues(ctx.currentTime);
+  maitre.gain.setValueAtTime(0.9, ctx.currentTime);
   enMarche = true;
   pointeur = 0; tempsAffiche = -1; fileAttente = [];
   prochainTemps = ctx.currentTime + 0.08;
@@ -593,6 +630,14 @@ async function demarrer(){
 function arreter(fini){
   enMarche = false;
   if(boucleMinuteur){ clearInterval(boucleMinuteur); boucleMinuteur = null; }
+  /* les clics et nappes déjà programmés courent jusqu'à 2/3 de temps devant
+     (subdivisions comprises) : on ferme le maître pour ne rien laisser traîner */
+  if(ctx && maitre){
+    const t = ctx.currentTime;
+    maitre.gain.cancelScheduledValues(t);
+    maitre.gain.setValueAtTime(maitre.gain.value, t);
+    maitre.gain.linearRampToValueAtTime(0.0001, t + 0.02);
+  }
   fileAttente = []; tempsAffiche = -1;
   if(fini) restant = 0;
   try{ if(verrou){ verrou.release(); verrou = null; } }catch(e){}
@@ -914,10 +959,12 @@ function choisirMorceau(i){
   if(m.battues) etat.battues = Number(m.battues);
   if(m.tempo)   etat.tempo   = Number(m.tempo);
   if(m.gamme)   etat.gamme   = m.gamme;
+  etat.subdivision = (Number(m.subdivision) === 3 || Number(m.subdivision) === 2) ? Number(m.subdivision) : 1;
   if(m.grade !== undefined) etat.grade = Math.max(0, Math.min(10, Number(m.grade)));
   etat.morceau = m.code || m.titre;
   etat.contrainte = "";
   document.getElementById("battues").value = String(etat.battues);
+  document.getElementById("subdivision").value = String(etat.subdivision);
   document.getElementById("gamme").value = etat.gamme;
   document.getElementById("saisieAccords").value = m.mesures;
   peindreTempo(); rendreGrades(); majChampGamme();
@@ -969,7 +1016,7 @@ function appliquerModele(i){
   appliquerSaisie(txt);
 }
 function appliquerSaisie(txt){
-  const r = lireBoucle(txt);
+  const r = lireBoucle(txt, etat.battues);
   const champ = document.getElementById("saisieAccords");
   const msg = document.getElementById("msgErreur");
   if(r.erreur){
@@ -991,8 +1038,8 @@ function reconstruire(){
 }
 function majChampGamme(){
   const m = grade().mode;
-  document.getElementById("champGamme").style.visibility =
-    (m === "gamme" || m === "couplage") ? "visible" : "hidden";
+  document.getElementById("champGamme").style.display =
+    (m === "gamme" || m === "couplage") ? "" : "none";
 }
 function remplirSelects(){
   const t = document.getElementById("tonique");
@@ -1002,6 +1049,7 @@ function remplirSelects(){
   g.innerHTML = GAMMES.map(function(x){ return '<option value="'+x.id+'">'+x.nom+"</option>"; }).join("");
   g.value = etat.gamme;
   document.getElementById("battues").value = String(etat.battues);
+  document.getElementById("subdivision").value = String(etat.subdivision);
   document.getElementById("zone").value = etat.zone;
   document.getElementById("duree").value = String(etat.duree);
   document.getElementById("saisieAccords").value = etat.saisie;
@@ -1048,7 +1096,26 @@ function brancher(){
     appliquerSaisie(this.value);
   });
   document.getElementById("tonique").addEventListener("change", function(){ etat.toniqueModele = parseInt(this.value,10); sauver(); });
-  document.getElementById("battues").addEventListener("change", function(){ etat.battues = parseInt(this.value,10); reconstruire(); });
+  document.getElementById("battues").addEventListener("change", function(){
+    /* le plafond d'emplacements dépend des battues : on relit avant d'accepter */
+    const avant = etat.battues, neuf = parseInt(this.value, 10);
+    const r = lireBoucle(etat.saisie, neuf);
+    if(r.erreur){
+      this.value = String(avant);
+      const msg = document.getElementById("msgErreur");
+      msg.hidden = false;
+      msg.textContent = r.erreur + " Le réglage reste à " + avant + " temps.";
+      return;
+    }
+    etat.battues = neuf;
+    etat.mesures = r.mesures;
+    document.getElementById("msgErreur").hidden = true;
+    reconstruire();
+  });
+  document.getElementById("subdivision").addEventListener("change", function(){
+    etat.subdivision = parseInt(this.value, 10) || 1;
+    sauver();
+  });
   document.getElementById("zone").addEventListener("change", function(){ etat.zone = this.value; rendreManche(); sauver(); });
   document.getElementById("duree").addEventListener("change", function(){ etat.duree = parseInt(this.value,10); restant = 0; peindreMinuteur(); sauver(); });
   document.getElementById("gamme").addEventListener("change", function(){ etat.gamme = this.value; rendreManche(); rendreConsigne(); sauver(); });
@@ -1068,8 +1135,8 @@ function brancher(){
 }
 function init(){
   charger();
-  const r = lireBoucle(etat.saisie);
-  etat.mesures = r.erreur ? lireBoucle("Am7 | D7").mesures : r.mesures;
+  const r = lireBoucle(etat.saisie, etat.battues);
+  etat.mesures = r.erreur ? lireBoucle("Am7 | D7", etat.battues).mesures : r.mesures;
   remplirSelects();
   rendreGrades(); rendreModeles(); majChampGamme();
   construireTimeline();
