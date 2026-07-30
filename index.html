@@ -180,6 +180,7 @@ input[type=text].erreur{border-color:#C4614F}
     <select id="gamme"></select>
   </div>
   <div class="bascule"><span>Accords en fond</span><button class="interrupteur" id="basPad" aria-pressed="true" aria-label="Accords en fond"></button></div>
+  <div class="bascule"><span>Bourdon de tonique</span><button class="interrupteur" id="basBourdon" aria-pressed="false" aria-label="Bourdon de tonique"></button></div>
   <div class="bascule"><span>Clic du métronome</span><button class="interrupteur" id="basClic" aria-pressed="true" aria-label="Clic du métronome"></button></div>
   <div class="bascule"><span>Cordes graves à droite</span><button class="interrupteur" id="basMiroir" aria-pressed="false" aria-label="Inverser les cordes"></button></div>
 </section>
@@ -399,6 +400,20 @@ function noteAncrage(mesures){
   for(let i=1;i<12;i++){ if(p[i] > p[best]) best = i; }
   return best;
 }
+/* Tonique modale : la fondamentale du PREMIER accord de la boucle.
+   Une boucle ne résout jamais ; c'est donc son point de départ, celui qui
+   revient, que l'oreille prend pour maison — pas l'accord en cours.
+   Définition unique, partagée par le manche, la consigne et le bourdon :
+   sans elle les trois se contredisaient (le manche dessinait Do dorien
+   pendant que la consigne annonçait Fa dorien sur la mesure de F7).
+   Attention : sur une grille fonctionnelle (Autumn Leaves, dont le premier
+   accord est un ii), ce n'est pas la tonique réelle. C'est assumé — l'outil
+   sert les boucles modales, et mieux vaut que l'œil et l'oreille se trompent
+   ensemble que séparément. */
+function toniqueModale(mesures, secours){
+  if(mesures && mesures.length && mesures[0].length) return mesures[0][0].pc;
+  return (secours === undefined || secours === null) ? 0 : secours;
+}
 /* cellule de 3 notes : communes d'abord, complétées par les plus présentes */
 function cellule(mesures){
   const c = notesCommunes(accordsUniques(mesures)).slice(0, 3);
@@ -427,7 +442,7 @@ const NOMS_CORDES = ["E","A","D","G","B","E"];
 const etat = {
   grade:0, saisie:"Am7 | D7", mesures:[], battues:4, tempo:76,
   zone:"0-5", duree:300, gamme:"majeur", toniqueModele:0,
-  subdivision:1, pad:true, clic:true, miroir:false, contrainte:"", morceau:""
+  subdivision:1, pad:true, bourdon:false, clic:true, miroir:false, contrainte:"", morceau:""
 };
 let repertoire = [];
 
@@ -479,7 +494,7 @@ function sauver(){
       grade:etat.grade, saisie:etat.saisie, battues:etat.battues, tempo:etat.tempo,
       zone:etat.zone, duree:etat.duree, gamme:etat.gamme, toniqueModele:etat.toniqueModele,
       subdivision:etat.subdivision,
-      pad:etat.pad, clic:etat.clic, miroir:etat.miroir, morceau:etat.morceau
+      pad:etat.pad, bourdon:etat.bourdon, clic:etat.clic, miroir:etat.miroir, morceau:etat.morceau
     }));
   }catch(e){}
 }
@@ -573,12 +588,44 @@ function pad(t, accord, duree){
     o.start(t); o.stop(t + d + 0.05);
   });
 }
+/* Bourdon : une tenue sur la tonique modale, sous la boucle entière,
+   indépendante des changements d'accord. La nappe seule ne suffit pas à
+   fixer le centre — Cm7 | F7 s'entend aussi bien comme un ii-V vers Sib.
+   Dans la musique réelle, la mélodie et le groove font ce travail ; l'app
+   les supprime, d'où cette béquille. Coupé par défaut : sur une grille
+   fonctionnelle il poserait un pédale sur le mauvais degré. */
+function bourdon(t, pc, duree){
+  if(!etat.bourdon || !ctx) return;
+  const fin = t + duree;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.06, t + 0.08);
+  g.gain.setValueAtTime(0.06, fin);
+  /* l'extinction déborde sur le tour suivant, dont l'attaque a déjà
+     commencé : les deux se croisent et la couture ne s'entend pas */
+  g.gain.exponentialRampToValueAtTime(0.0001, fin + 0.12);
+  g.connect(maitre);
+  /* fondamentale et son octave, sans quinte : une quinte se heurterait au
+     bémol 5 d'un premier accord demi-diminué. La tonique seule suffit à
+     fixer le centre, et laisse la nappe donner le mode. */
+  [36 + pc, 48 + pc].forEach(function(midi){
+    const o = ctx.createOscillator();
+    o.type = "triangle";
+    o.frequency.value = 440 * Math.pow(2, (midi - 69) / 12);
+    o.connect(g);
+    o.start(t); o.stop(fin + 0.2);
+  });
+}
 function ordonnanceur(){
   if(!ctx || !timeline.length) return;
   const parTemps = 60 / etat.tempo;
   while(prochainTemps < ctx.currentTime + 0.12){
     const b = timeline[pointeur];
     if(b){
+      /* le bourdon ignore les accords : une seule tenue par tour de boucle */
+      if(pointeur === 0) bourdon(prochainTemps,
+        toniqueModale(etat.mesures, b.accord ? b.accord.pc : 0),
+        parTemps * timeline.length);
       clic(prochainTemps, b.debutAccord ? "chgt" : (b.fort ? "fort" : "faible"));
       /* subdivisions : le temps reste l'unité de la timeline, seul le clic se divise */
       const sub = etat.subdivision === 3 ? 3 : (etat.subdivision === 2 ? 2 : 1);
@@ -695,7 +742,7 @@ function marques(){
   }
   if(mode === "gamme" || mode === "couplage"){
     const g = gammeCourante();
-    const racine = (etat.mesures.length && etat.mesures[0].length) ? etat.mesures[0][0].pc : cour.pc;
+    const racine = toniqueModale(etat.mesures, cour ? cour.pc : 0);
     g.iv.forEach(function(n){ m[(racine + n) % 12] = {c:"var(--nacre-faible)", t:"", petit:true}; });
     poserAccord();
     if(mode === "couplage"){
@@ -884,12 +931,13 @@ function rendreConsigne(){
   }
   else if(etat.grade === 4){
     const g = gammeCourante();
-    h = "<p>Une seule gamme sur toute la boucle : <kbd>"+NOMS[cour ? cour.pc : 0]+" "+g.nom.toLowerCase()+"</kbd>. Mouvement libre.</p>"
+    h = "<p>Une seule gamme sur toute la boucle : <kbd>"+NOMS[toniqueModale(etat.mesures, cour ? cour.pc : 0)]+" "+g.nom.toLowerCase()+"</kbd>, ancrée sur le premier accord.</p>"
+      + "<p>C'est le bouclage qui fabrique le mode, pas les accords : les mêmes, suivis d'une résolution, désigneraient une autre tonique. Le bourdon (réglages) rend ce centre audible.</p>"
       + "<p>Le piège de ce grade est le remplissage. Laisse au moins un temps de silence par mesure.</p>";
   }
   else if(etat.grade === 5){
     const g = gammeCourante();
-    h = "<p>Circule dans <kbd>"+NOMS[cour ? cour.pc : 0]+" "+g.nom.toLowerCase()+"</kbd>, mais contrôle où tu tombes sur les temps forts.</p>"
+    h = "<p>Circule dans <kbd>"+NOMS[toniqueModale(etat.mesures, cour ? cour.pc : 0)]+" "+g.nom.toLowerCase()+"</kbd>, mais contrôle où tu tombes sur les temps forts.</p>"
       + "<p>Les notes cerclées de vert sortent de la gamme : ce sont elles qui trahissent l'accord hors tonalité. Vise-les au changement.</p>";
   }
   else if(etat.grade === 6){
@@ -1053,7 +1101,7 @@ function remplirSelects(){
   document.getElementById("zone").value = etat.zone;
   document.getElementById("duree").value = String(etat.duree);
   document.getElementById("saisieAccords").value = etat.saisie;
-  [["basPad","pad"],["basClic","clic"],["basMiroir","miroir"]].forEach(function(p){
+  [["basPad","pad"],["basBourdon","bourdon"],["basClic","clic"],["basMiroir","miroir"]].forEach(function(p){
     const el = document.getElementById(p[0]);
     if(el) el.setAttribute("aria-pressed", String(!!etat[p[1]]));
   });
@@ -1120,7 +1168,7 @@ function brancher(){
   document.getElementById("duree").addEventListener("change", function(){ etat.duree = parseInt(this.value,10); restant = 0; peindreMinuteur(); sauver(); });
   document.getElementById("gamme").addEventListener("change", function(){ etat.gamme = this.value; rendreManche(); rendreConsigne(); sauver(); });
   document.getElementById("btnTirer").addEventListener("click", tirerContrainte);
-  [["basPad","pad"],["basClic","clic"],["basMiroir","miroir"]].forEach(function(p){
+  [["basPad","pad"],["basBourdon","bourdon"],["basClic","clic"],["basMiroir","miroir"]].forEach(function(p){
     document.getElementById(p[0]).addEventListener("click", function(){
       etat[p[1]] = !etat[p[1]];
       this.setAttribute("aria-pressed", String(etat[p[1]]));
@@ -1149,7 +1197,7 @@ if(typeof document !== "undefined" && document.getElementById("manche")) init();
 
 if(typeof module !== "undefined" && module.exports){
   module.exports = {lireAccord, lireBoucle, accordsUniques, notesCommunes, notesMobiles,
-                    cellule, noteAncrage, substitutTritonique, GAMMES, GRADES, NOMS, MAX_MESURES};
+                    cellule, noteAncrage, toniqueModale, substitutTritonique, GAMMES, GRADES, NOMS, MAX_MESURES};
 }
 </script>
 </body>
