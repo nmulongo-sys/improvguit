@@ -63,7 +63,7 @@ t("aide mentionne le token _", /_<\/kbd>/.test(doc.querySelector(".aide").innerH
 
 /* accès aux fonctions internes via le scope du script */
 const F = win.eval("({lireAccord, lireBoucle, accordsUniques, notesCommunes, notesMobiles," +
-  " cellule, noteAncrage, poidsNotes, substitutTritonique, construireTimeline," +
+  " cellule, noteAncrage, toniqueModale, poidsNotes, substitutTritonique, construireTimeline," +
   " dureeAccord, etat, GRADES, GAMMES, NOMS, MAX_MESURES," +
   " get timeline(){return timeline}})");
 
@@ -232,6 +232,48 @@ t("la prolongation augmente le poids", pProl[0] > pEgal[0]);
 t("Sol commun aux deux accords : poids 1", Math.abs(pProl[7] - 1) < 1e-9);
 eq("ancrage de C _ _ G = Sol (note commune)", F.noteAncrage(B("C _ _ G", 4).mesures), 7);
 eq("ancrage de C _ _ F# = Do (aucune note commune)", F.noteAncrage(B("C _ _ F#", 4).mesures), 0);
+
+/* ------------------------------------------------------------------
+   Tonique modale — le premier accord de la boucle, pas l'accord courant
+   ------------------------------------------------------------------ */
+eq("tonique modale de Cm7 | F7 = Do", F.toniqueModale(B("Cm7 | F7").mesures), 0);
+eq("tonique modale de Am7 | D7 = La", F.toniqueModale(B("Am7 | D7").mesures), 9);
+eq("tonique modale de Gm7 | C7 = Sol", F.toniqueModale(B("Gm7 | C7").mesures), 7);
+/* elle ne suit pas l'accord en cours : le second accord ne la change pas */
+eq("F7 en second ne déplace pas la tonique", F.toniqueModale(B("Cm7 | F7").mesures), 0);
+eq("tenue *2 : tonique inchangée", F.toniqueModale(B("Cm7 *2 | F7").mesures), 0);
+eq("prolongation _ : tonique = 1er emplacement", F.toniqueModale(B("Cm7 _ _ F7", 4).mesures), 0);
+/* limite assumée : sur une grille fonctionnelle, le 1er accord est un ii,
+   donc la tonique modale n'est PAS la tonique réelle (Sib, pc 10) */
+eq("Autumn Leaves : tonique modale = Do, pas Sib", F.toniqueModale(B("Cm7 | F7 | Bbmaj7 | Ebmaj7").mesures), 0);
+/* secours quand la boucle est vide ou illisible */
+eq("boucle vide : secours utilisé", F.toniqueModale([], 5), 5);
+eq("mesures absentes : secours utilisé", F.toniqueModale(null, 3), 3);
+eq("boucle vide sans secours : 0", F.toniqueModale([]), 0);
+
+/* ------------------------------------------------------------------
+   Bourdon — réglage, persistance, interface
+   ------------------------------------------------------------------ */
+t("interrupteur du bourdon présent", !!doc.getElementById("basBourdon"));
+eq("bourdon coupé par défaut", doc.getElementById("basBourdon").getAttribute("aria-pressed"), "false");
+eq("etat.bourdon vaut false au départ", F.etat.bourdon, false);
+t("le bourdon est sauvegardé", /bourdon:etat\.bourdon/.test(HTML));
+t("le bourdon ne sonne qu'en tête de boucle", /pointeur === 0\) bourdon\(/.test(HTML));
+t("le bourdon n'impose pas de tierce", !/bourdon[\s\S]{0,600}pc \+ 4/.test(HTML));
+/* le bourdon bascule comme les autres interrupteurs */
+doc.getElementById("basBourdon").dispatchEvent(new win.Event("click", { bubbles: true }));
+eq("clic : bourdon activé", F.etat.bourdon, true);
+eq("clic : aria-pressed suit", doc.getElementById("basBourdon").getAttribute("aria-pressed"), "true");
+doc.getElementById("basBourdon").dispatchEvent(new win.Event("click", { bubbles: true }));
+eq("second clic : bourdon coupé", F.etat.bourdon, false);
+
+/* ------------------------------------------------------------------
+   Cohérence manche / consigne : une seule définition de la tonique
+   ------------------------------------------------------------------ */
+t("marques() lit la tonique modale", /toniqueModale\(etat\.mesures, cour \? cour\.pc : 0\)/.test(HTML));
+eq("plus aucune tonique déduite de l'accord courant",
+   (HTML.match(/NOMS\[cour \? cour\.pc : 0\]/g) || []).length, 0);
+t("la consigne G4 nomme le bouclage", /bouclage qui fabrique le mode/.test(HTML));
 
 /* ------------------------------------------------------------------
    8. Le répertoire complet passe le moteur (si le fichier est présent)
