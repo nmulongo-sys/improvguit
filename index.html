@@ -599,8 +599,11 @@ function bourdon(t, pc, duree){
   const fin = t + duree;
   const g = ctx.createGain();
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(0.06, t + 0.08);
-  g.gain.setValueAtTime(0.06, fin);
+  /* même amplitude que la nappe : le bourdon sonnant une octave plus bas,
+     où l'oreille est moins sensible, l'égalité de niveau le place tout de
+     même légèrement en dessous — ce qu'on attend d'un socle. */
+  g.gain.exponentialRampToValueAtTime(0.085, t + 0.08);
+  g.gain.setValueAtTime(0.085, fin);
   /* l'extinction déborde sur le tour suivant, dont l'attaque a déjà
      commencé : les deux se croisent et la couture ne s'entend pas */
   g.gain.exponentialRampToValueAtTime(0.0001, fin + 0.12);
