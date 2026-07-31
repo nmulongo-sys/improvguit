@@ -697,6 +697,185 @@ F.appliquerSaisie("C | G");
 eq("saisie manuelle : modèle libéré", F.etat.modeleActif, "");
 t("la sauvegarde porte le modèle actif", /modeleActif:etat\.modeleActif/.test(HTML));
 
+/* ------------------------------------------------------------------
+   13. Coach — consignes d'action pendant la lecture
+   ------------------------------------------------------------------ */
+const C = win.eval("({CONSIGNES, cheminCoach, consignesEligibles, tirerConsigne," +
+  " poserConsigne, coachEffacer, coachTop, majCoach, coach, resoudreCible, distanceChangement})");
+
+/* hygiène de la banque */
+const TYPES_CHEMIN = ["montee", "descente", "broderie", "enclosure", "approche",
+  "cible", "pilier", "cellule", "commune", "double"];
+let nConsignes = 0;
+for (let g = 0; g <= 10; g++) {
+  const l = C.CONSIGNES[g] || [];
+  t("G" + g + " : au moins 3 consignes", l.length >= 3);
+  nConsignes += l.length;
+  l.forEach(function (c, i) {
+    t("G" + g + "#" + i + " : texte présent, ≤ 64 caractères", !!c.t && c.t.length <= 64);
+    if (c.chemin) t("G" + g + "#" + i + " : type de chemin connu", TYPES_CHEMIN.indexOf(c.chemin.type) >= 0);
+  });
+}
+t("banque : au moins 36 consignes", nConsignes >= 36);
+t("persistance : coach sauvegardé", /coach:etat\.coach/.test(HTML));
+t("bascule basCoach présente", !!doc.getElementById("basCoach"));
+t("bandeau coach présent et caché au départ", doc.getElementById("coach").hidden === true);
+
+/* boucle mineure à 2 accords : cibles résolues, tout grade a de quoi dire */
+F.etat.battues = 4;
+F.appliquerSaisie("Am7 | D7");
+eq("cible : tierce de Am7 (Do)", C.resoudreCible("tierceCourant"), 0);
+eq("cible : fondamentale du suivant (Ré)", C.resoudreCible("fondSuivant"), 2);
+eq("cible : tonique modale (La)", C.resoudreCible("tonique"), 9);
+for (let g = 0; g <= 10; g++) {
+  F.etat.grade = g;
+  const elig = C.consignesEligibles(g);
+  t("G" + g + " : au moins une éligible sur Am7|D7", elig.length >= 1);
+  elig.forEach(function (c) {
+    const ch = C.cheminCoach(c.chemin);
+    t("G" + g + " « " + c.t.slice(0, 26) + " » : chemin calculable", !!ch);
+    if (ch) ch.pas.forEach(function (pas) {
+      t("G" + g + " « " + c.t.slice(0, 26) + " » : pc valide", pas.pc >= 0 && pas.pc <= 11);
+    });
+  });
+}
+
+/* géométrie des chemins sur La (gamme majeure par défaut) */
+F.etat.grade = 4;
+const mont = C.cheminCoach({ type: "montee", vers: "tonique", n: 4 });
+t("montée : 4 pas", mont.pas.length === 4);
+eq("montée : arrive sur la tonique", mont.pas[3].pc, 9);
+eq("montée : le dernier pas porte l'ordre 4", mont.pas[3].ord, "4");
+const desc = C.cheminCoach({ type: "descente", vers: "tonique", n: 4 });
+eq("descente : arrive sur la tonique", desc.pas[3].pc, 9);
+F.etat.grade = 6;
+const enc = C.cheminCoach({ type: "enclosure", vers: "fondCourant" });
+eq("enclosure : dessus diatonique", enc.pas[0].pc, 11);
+eq("enclosure : dessous demi-ton", enc.pas[1].pc, 8);
+eq("enclosure : cible en dernier", enc.pas[2].pc, 9);
+const app = C.cheminCoach({ type: "approche", vers: "tierceCourant" });
+eq("approche : demi-ton sous la tierce", app.pas[0].pc, 11);
+eq("approche : résolution sur la tierce", app.pas[1].pc, 0);
+
+/* un seul accord majeur : le contexte filtre */
+F.etat.grade = 8;
+F.appliquerSaisie("C");
+t("G8 sur un accord : aucune éligible", C.consignesEligibles(8).length === 0);
+t("tirage à vide : null", C.tirerConsigne(8, null) === null);
+C.coach.courant = null;
+C.coachTop();
+t("coachTop à vide : bandeau caché, pas d'erreur", doc.getElementById("coach").hidden === true);
+t("si:\"min\" exclue sur boucle majeure",
+  C.consignesEligibles(4).every(function (c) { return c.si !== "min"; }));
+
+/* pose d'une consigne : bandeau + couche surimprimée */
+F.etat.grade = 3;
+F.appliquerSaisie("Am7 | D7");
+C.poserConsigne(C.CONSIGNES[3][1]);
+t("bandeau visible", doc.getElementById("coach").hidden === false);
+eq("une consigne vit 4 tours", C.coach.resteTours, 4);
+t("bandeau porte le texte", doc.getElementById("coach").textContent.indexOf("Approche la tierce") >= 0);
+t("couche dessinée (anneaux pointillés)", doc.getElementById("manche").innerHTML.indexOf("stroke-dasharray") >= 0);
+t("couche marquée data-coach", doc.getElementById("manche").innerHTML.indexOf('data-coach="1"') >= 0);
+C.poserConsigne(C.CONSIGNES[3][0]);
+t("consigne cible : complément dynamique (→ nom)", doc.getElementById("coach").textContent.indexOf("→") >= 0);
+t("consigne cible : pastille marquée pulse", doc.getElementById("manche").innerHTML.indexOf("coach-pulse") >= 0);
+
+/* rotation : jamais deux fois la même d'affilée */
+let repetition = false, precedente = null;
+for (let i = 0; i < 40; i++) {
+  const c = C.tirerConsigne(3, precedente);
+  if (c === precedente) repetition = true;
+  precedente = c;
+}
+t("rotation : pas de répétition immédiate", !repetition);
+
+/* distance au changement d'accord (pour armer le battement) */
+eq("distance au prochain changement depuis le temps 0", C.distanceChangement(), 4);
+
+/* effacement : tout disparaît */
+C.coachEffacer();
+t("effacement : bandeau caché", doc.getElementById("coach").hidden === true);
+t("effacement : couche retirée", doc.getElementById("manche").innerHTML.indexOf("data-coach") < 0);
+
+/* adaptation à une fiche : quand la boucle, la gamme et le grade changent
+   (ce que fait choisirMorceau), les chemins suivent sans rien de codé en dur */
+F.etat.grade = 4;
+F.etat.gamme = "mineur";
+F.appliquerSaisie("Em7 | Am7");
+eq("fiche mineure : tonique recalculée (Mi)", C.resoudreCible("tonique"), 4);
+const montFiche = C.cheminCoach({ type: "montee", vers: "tonique", n: 3 });
+eq("fiche mineure : la montée suit la nouvelle gamme", montFiche.pas[2].pc, 4);
+t("mineur naturel : la sixte du mode (♮6) est exclue — pas de 9 dans la gamme",
+  !C.consignesEligibles(4).some(function (c) { return c.si === "min"; }));
+F.etat.gamme = "dorien";
+t("dorien : la sixte du mode redevient éligible",
+  C.consignesEligibles(4).some(function (c) { return c.si === "min"; }));
+eq("dorien : rel:9 résolue (Do♯ sur Mi)", C.resoudreCible("rel:9"), 1);
+F.etat.gamme = "majeur";
+F.appliquerSaisie("Am7 | D7");
+
+/* ------------------------------------------------------------------
+   14. Tonalité déclarée par la fiche
+   ------------------------------------------------------------------ */
+const T = win.eval("({pcTonalite, choisirMorceau, get repertoire(){return repertoire}," +
+  " set repertoire(v){repertoire = v}})");
+
+eq("tonalité : Bb", T.pcTonalite("Bb"), 10);
+eq("tonalité : Gm (qualité ignorée)", T.pcTonalite("Gm"), 7);
+eq("tonalité : F#m", T.pcTonalite("F#m"), 6);
+eq("tonalité : Bbm (bémol puis mineur)", T.pcTonalite("Bbm"), 10);
+eq("tonalité : minuscule tolérée", T.pcTonalite("a"), 9);
+t("tonalité : chaîne vide → null", T.pcTonalite("") === null);
+t("tonalité : illisible → null", T.pcTonalite("mineur") === null);
+
+/* sans tonalité déclarée : le premier accord fait la tonique (inchangé) */
+F.etat.tonalite = "";
+F.appliquerSaisie("Cm7 F7 | Bbmaj7");
+eq("sans fiche : tonique = premier accord (Do)", F.toniqueModale(F.etat.mesures, 0), 0);
+
+/* avec tonalité déclarée : la fiche fait autorité */
+F.etat.tonalite = "Bb";
+eq("fiche déclarée : tonique = Si♭", F.toniqueModale(F.etat.mesures, 0), 10);
+eq("coach : la cible « tonique » suit la fiche", C.resoudreCible("tonique"), 10);
+F.etat.grade = 4;
+F.etat.gamme = "majeur";
+const montBb = C.cheminCoach({ type: "montee", vers: "tonique", n: 3 });
+eq("coach : la montée arrive sur Si♭", montBb.pas[2].pc, 10);
+t("bulle : l'analyse est relative à la tonique déclarée", F.analyserNote(10).rel === 0);
+
+/* tonalité illisible : repli silencieux sur le premier accord */
+F.etat.tonalite = "???";
+eq("tonalité illisible : repli sur le premier accord", F.toniqueModale(F.etat.mesures, 0), 0);
+
+/* une saisie manuelle libère la tonalité déclarée */
+F.etat.tonalite = "Bb";
+F.appliquerSaisie("Am7 | D7");
+eq("saisie manuelle : tonalité libérée", F.etat.tonalite, "");
+eq("…et la tonique redevient le premier accord (La)", F.toniqueModale(F.etat.mesures, 0), 9);
+
+/* choisirMorceau applique la tonalité de la fiche */
+T.repertoire = [{ code: "T-1", titre: "essai", grade: 4, tonalite: "Bb",
+  gamme: "majeur", battues: 4, tempo: 92, mesures: "Cm7 F7 | Bbmaj7" }];
+T.choisirMorceau(0);
+eq("fiche chargée : tonalité posée", F.etat.tonalite, "Bb");
+eq("fiche chargée : tonique = Si♭ malgré le Cm7 initial", F.toniqueModale(F.etat.mesures, 0), 10);
+eq("fiche chargée : le coach vise Si♭", C.resoudreCible("tonique"), 10);
+
+/* fiche sans champ tonalite : comportement d'avant, inchangé */
+T.repertoire = [{ code: "T-2", titre: "essai 2", grade: 4, gamme: "majeur",
+  battues: 4, tempo: 92, mesures: "Cm7 F7 | Bbmaj7" }];
+T.choisirMorceau(0);
+eq("fiche muette : tonalité vide", F.etat.tonalite, "");
+eq("fiche muette : tonique = premier accord", F.toniqueModale(F.etat.mesures, 0), 0);
+
+t("persistance : tonalité sauvegardée", /tonalite:etat\.tonalite/.test(HTML));
+
+/* remise en état pour le bilan */
+F.etat.tonalite = "";
+F.etat.grade = 0;
+F.appliquerSaisie("Am7 | D7");
+
 console.log("\n" + (ok + ko) + " assertions — " + ok + " au vert, " + ko + " au rouge");
 console.log(REP
   ? "répertoire privé présent : série complète (38 fiches)"
