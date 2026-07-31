@@ -3,7 +3,7 @@
 Entraîneur d'improvisation à la guitare, organisé en grades : à chaque grade, une seule variable est libre. Fichier HTML unique, hors ligne, pensé pour cinq minutes par jour sur téléphone.
 
 **En ligne** : https://nmulongo-sys.github.io/improvguit/
-**Statut** : révision du 2026-07-30 (v4) • fichier unique `index.html`, aucune dépendance externe.
+**Statut** : révision du 2026-07-31 (v5) • fichier unique `index.html`, aucune dépendance externe.
 
 ## Principe
 
@@ -84,15 +84,16 @@ Fichier unique, sections numérotées dans le `<script>` :
 
 1. **Théorie** — `NOMS`/`FR`/`DEGRE` (12 classes de hauteur), table `QUALITES` (alias → intervalles), `ALIAS` trié par longueur décroissante pour apparier d'abord le suffixe le plus long. `lireAccord()` renvoie `{sym, pc, iv, notes}` ou `null`, avec un repli qui retire les parenthèses. `lireBoucle(texte, battues)` renvoie `{mesures}` ou `{erreur}` : jamais d'exception, toute saisie illisible remonte un message. Le second argument sert au plafond d'emplacements.
 2. **Modèle de données** — une boucle est un **tableau de mesures**, chaque mesure un tableau d'emplacements. Les accords tenus — sur plusieurs mesures (`*4`, `%`) comme à l'intérieur d'une mesure (`_`) — partagent **la même référence d'objet** : c'est cette identité qui distingue un accord tenu d'un accord rejoué, pour l'affichage comme pour la nappe audio. Trois fonctions en dépendent (`construireTimeline`, `dureeAccord`, `poidsNotes`) et aucune n'a besoin de connaître la notation.
-3. **Persistance** — `localStorage`, clé `improvguit.v2`, schéma `{grade, saisie, battues, tempo, zone, duree, gamme, toniqueModele, subdivision, pad, bourdon, clic, miroir, morceau}`. Lecture et écriture sous `try/catch`. Une clé absente d'une sauvegarde ancienne garde sa valeur par défaut.
+3. **Persistance** — `localStorage`, clé `improvguit.v2`, schéma `{grade, saisie, battues, tempo, zone, duree, gamme, toniqueModele, subdivision, pad, bourdon, clic, miroir, morceau, modeleActif}`. Lecture et écriture sous `try/catch`. Une clé absente d'une sauvegarde ancienne garde sa valeur par défaut.
 4. **Ligne de temps** — `construireTimeline()` produit un temps par battue avec `{mesure, temps, fort, accord, debutAccord, zoneAtterrissage}`. Dans une mesure à plusieurs emplacements, l'accord d'un temps est `floor(temps × nEmplacements / battues)` ; quand il y a autant d'emplacements que de temps, la correspondance est l'identité — c'est ce qui rend `_` exact. `debutAccord` compare les références. `zoneAtterrissage` marque le dernier temps avant un changement : c'est la cible visuelle des grades ≥ 3.
 5. **Audio** — `AudioContext` partagé, ordonnanceur à anticipation (`setInterval` 25 ms, fenêtre 120 ms). Clic carré à quatre hauteurs (1760 Hz changement d'accord, 1320 Hz temps fort, 880 Hz autres, 660 Hz subdivision) ; les subdivisions sont générées dans l'ordonnanceur, la ligne de temps les ignore. Nappe en ondes triangulaires dont la durée vient de `dureeAccord()`, plafonnée à 12 s. **Bourdon** facultatif : fondamentale et octave sur la tonique modale, une octave sous la nappe, programmé une seule fois par tour de boucle et non par accord ; son extinction déborde sur l'attaque du tour suivant, qui la recouvre. `arreter()` ferme le gain maître sur 20 ms : sans cela, clics et nappes déjà programmés continuent de sonner après l'arrêt, jusqu'à deux tiers de temps avec les subdivisions. La synchro visuelle dépile une file `{i, t}` en `requestAnimationFrame` contre `ctx.currentTime` — jamais `setTimeout`.
 6. **Calcul d'affichage** — `marques()` retourne `classe de hauteur → {couleur, étiquette, halo, petit}` selon le mode du grade. Point unique où la pédagogie touche le rendu ; ajouter un grade = ajouter un mode ici et une branche dans `rendreConsigne()`. La tonique dont dépendent la gamme dessinée, le texte de la consigne et le bourdon vient d'une source unique, `toniqueModale()` : la fondamentale du premier accord de la boucle.
-7. **Manche** — SVG **vertical**, sillet en haut, cordes en colonnes, **grave à gauche** par défaut (convention des diagrammes d'accords) ; bascule miroir dans les réglages. Cordes à vide de gauche à droite : `[4,9,2,7,11,4]`. Repères aux cases 3, 5, 7, 9, double au 12. `viewBox` recalculé selon la zone, conteneur défilant au-delà de 52 vh.
-8. **Grille** — un bloc par mesure, une cellule par temps, défilement automatique sur la mesure courante (utile sur les formes de 32 mesures). Les symboles consécutifs identiques sont fusionnés : `C _ _ G` s'affiche « C G ».
-9. **Consigne** — texte généré depuis la boucle réelle, jamais codé en dur. G1 et G2 tirent une contrainte au sort, rejouable par `↺`.
-10. **Répertoire** — `poserRepertoire()` construit le sélecteur groupé par grade ; `chargerRepertoireDistant()` tente `repertoire.json` et échoue en silence.
-11. **Interface** — délégation d'événements, aucun cadre externe.
+7. **Bulles pédagogiques** — un clic sur une pastille du manche ouvre une explication adaptée au grade. **Deux couches, séparées.** `analyserNote(pc)` est purement **analytique** : elle dérive de la boucle des faits vérifiables — degré dans chaque accord, note commune à toute la boucle, double fonction (deux degrés différents selon l'accord), approche à un demi-ton d'une note de l'accord courant, appartenance à la gamme et à la cellule. Aucun texte. `CORPUS` est la couche **éditoriale** : un texte par grade et par situation, indexé `rel:N` (intervalle depuis la tonique modale), `cellule`, `double`, `commune`, `role:…`, `approche`, `accord`, `gamme`, `hors`, `*`. `cleCorpus()` résout dans cet ordre de priorité ; un garde-fou `si:"min"/"maj"` réserve une entrée aux boucles mineures ou majeures. **Le grade ne change pas les faits, il choisit lequel mérite d'être dit** — même principe que `marques()`, un seul point de branchement. Le filet `"*"` de chaque grade garantit qu'aucune combinaison ne reste muette. **Renvois bidirectionnels** : une entrée du corpus porte `e:"<nom de modèle>"` et affiche un bouton qui charge l'exercice ; réciproquement chaque `MODELES` porte `p:{deg, t}`, dont le texte s'affiche dans la consigne avec un lien qui rouvre la bulle sur la note concernée. `etat.modeleActif` est persisté, posé par `appliquerModele()` **après** `appliquerSaisie()` qui l'efface — toute saisie manuelle ou choix de morceau libère le modèle.
+8. **Manche** — SVG **vertical**, sillet en haut, cordes en colonnes, **grave à gauche** par défaut (convention des diagrammes d'accords) ; bascule miroir dans les réglages. Cordes à vide de gauche à droite : `[4,9,2,7,11,4]`. Repères aux cases 3, 5, 7, 9, double au 12. `viewBox` recalculé selon la zone, conteneur défilant au-delà de 52 vh.
+9. **Grille** — un bloc par mesure, une cellule par temps, défilement automatique sur la mesure courante (utile sur les formes de 32 mesures). Les symboles consécutifs identiques sont fusionnés : `C _ _ G` s'affiche « C G ».
+10. **Consigne** — texte généré depuis la boucle réelle, jamais codé en dur. G1 et G2 tirent une contrainte au sort, rejouable par `↺`.
+11. **Répertoire** — `poserRepertoire()` construit le sélecteur groupé par grade ; `chargerRepertoireDistant()` tente `repertoire.json` et échoue en silence.
+12. **Interface** — délégation d'événements, aucun cadre externe.
 
 Conventions de couleur, appliquées partout : **laiton** = fondamentale ou note d'ancrage, **indigo** = autres notes d'accord, **vert** = septième, halo des notes mobiles et approches chromatiques, **gris** = notes de passage. Manche en bois sombre et frettes laiton, chrome en ardoise froide : l'instrument se distingue de l'interface.
 
@@ -107,11 +108,35 @@ npm install     # jsdom, seule dépendance, de développement uniquement
 npm test
 ```
 
-`test.js` charge `index.html` dans un DOM et le pilote comme un utilisateur. Couverture : parseur et plafond d'emplacements aux quatre métriques, token de prolongation et identité par référence, tenue par-dessus la barre, ligne de temps et durées d'accord, notes communes et mobiles, ancrage pondéré, substitut tritonique, ordonnanceur audio sur `AudioContext` factice (comptage et placement des clics, tenue et hauteur du bourdon, coupure du maître à l'arrêt), rendu des onze grades, modèles, réglages, saisie invalide, persistance, absence de dépendance externe et de contenu pédagogique dans `index.html`.
+`test.js` charge `index.html` dans un DOM et le pilote comme un utilisateur. Couverture : parseur et plafond d'emplacements aux quatre métriques, token de prolongation et identité par référence, tenue par-dessus la barre, ligne de temps et durées d'accord, notes communes et mobiles, ancrage pondéré, substitut tritonique, ordonnanceur audio sur `AudioContext` factice (comptage et placement des clics, tenue et hauteur du bourdon, coupure du maître à l'arrêt), rendu des onze grades, modèles, réglages, saisie invalide, persistance, bulles pédagogiques (analyse, couverture des 132 combinaisons grade × note, renvois théorie ↔ exercice non orphelins, clics réels dans le DOM), absence de dépendance externe et de contenu pédagogique dans `index.html`.
 
-**Le répertoire étant hors dépôt, les séries qui en dépendent sont ignorées s'il est absent** : un clone nu valide le moteur et l'interface (215 assertions) ; avec `repertoire.json` posé à côté, la vérification fiche par fiche s'ajoute, pour un total qui dépend du nombre de fiches. Le test annonce lequel des deux régimes il a suivi.
+**Le répertoire étant hors dépôt, les séries qui en dépendent sont ignorées s'il est absent** : un clone nu valide le moteur et l'interface (260 assertions) ; avec `repertoire.json` posé à côté, la vérification fiche par fiche s'ajoute, pour un total qui dépend du nombre de fiches. Le test annonce lequel des deux régimes il a suivi.
 
 ## Journal de développement
+
+### 2026-07-31 — v5, bulles pédagogiques sur le manche
+
+Un clic sur une pastille ouvre une explication adaptée au grade. L'architecture sépare
+strictement ce qui se calcule de ce qui s'écrit : `analyserNote()` ne produit que des
+faits dérivés de la boucle, `CORPUS` ne contient que du texte. Trente-sept entrées
+réparties sur les onze grades, plus un filet par grade — les 132 combinaisons
+grade × note sont couvertes, un test le vérifie.
+
+Le corpus s'appuie sur les ouvrages de référence du projet : taxonomie des notes
+étrangères et période antécédent/conséquent (Stone), enclosures au demi-ton (Fret Dojo),
+ciblage des notes d'accord (*Arpeggios Building Blocks*).
+
+Les renvois vont dans les deux sens. La théorie propose l'exercice : une entrée du corpus
+peut afficher un bouton qui charge le modèle correspondant. L'exercice explique sa théorie :
+chaque modèle embarqué porte désormais un texte et une note à aller voir sur le manche.
+`etat.modeleActif` suit le modèle en cours et se libère dès qu'une saisie manuelle ou un
+morceau du répertoire prend la main.
+
+Bourdon retravaillé : dent de scie filtrée en passe-bas (1100 Hz, Q 0.7) et quatre
+oscillateurs — deux hauteurs doublées à ±5 centièmes — au lieu des deux triangles de la
+v4. Le battement lent remplace la fixité de synthèse ; la v4 sonnait comme un test auditif.
+
+260 assertions.
 
 ### 2026-07-30 — v4, bourdon de tonique
 
