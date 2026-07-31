@@ -105,6 +105,11 @@ input[type=text].erreur{border-color:#C4614F}
 .interrupteur::after{content:"";position:absolute;top:3px;left:3px;width:17px;height:17px;border-radius:50%;background:var(--nacre-faible);transition:.16s}
 .interrupteur[aria-pressed="true"]{background:var(--laiton);border-color:var(--laiton)}
 .interrupteur[aria-pressed="true"]::after{left:22px;background:var(--encre)}
+.coach{padding:9px 12px;border-bottom:1px solid var(--trait);background:rgba(214,167,60,.10);color:var(--nacre);font-size:15px;line-height:1.35}
+.coach b{color:var(--laiton);font-weight:600}
+.coach[hidden]{display:none}
+@keyframes coachBat{0%,100%{opacity:.95}50%{opacity:.2}}
+.coach-armee .coach-pulse{animation:coachBat .45s ease-in-out infinite}
 .fichier{display:block;border:1px dashed var(--trait);border-radius:3px;padding:10px;text-align:center;font-family:var(--mono);font-size:12.5px;color:var(--nacre-faible);margin-top:6px}
 .fichier input{display:none}
 .etat-rep{font-size:12px;color:var(--nacre-faible);margin-top:6px}
@@ -194,6 +199,7 @@ input[type=text].erreur{border-color:#C4614F}
   <div class="bascule"><span>Bourdon de tonique</span><button class="interrupteur" id="basBourdon" aria-pressed="false" aria-label="Bourdon de tonique"></button></div>
   <div class="bascule"><span>Clic du métronome</span><button class="interrupteur" id="basClic" aria-pressed="true" aria-label="Clic du métronome"></button></div>
   <div class="bascule"><span>Cordes graves à droite</span><button class="interrupteur" id="basMiroir" aria-pressed="false" aria-label="Inverser les cordes"></button></div>
+  <div class="bascule"><span>Consignes du coach</span><button class="interrupteur" id="basCoach" aria-pressed="true" aria-label="Consignes du coach"></button></div>
 </section>
 
 <section class="consigne">
@@ -213,6 +219,7 @@ input[type=text].erreur{border-color:#C4614F}
       <span class="position" id="position"></span>
     </div>
   </div>
+  <div class="coach" id="coach" hidden></div>
   <div class="manche-defil"><svg class="manche" id="manche" xmlns="http://www.w3.org/2000/svg"></svg><div class="bulle" id="bulle" hidden></div></div>
   <div class="legende" id="legende"></div>
 </div>
@@ -411,17 +418,29 @@ function noteAncrage(mesures){
   for(let i=1;i<12;i++){ if(p[i] > p[best]) best = i; }
   return best;
 }
-/* Tonique modale : la fondamentale du PREMIER accord de la boucle.
+/* Tonique modale : par défaut, la fondamentale du PREMIER accord de la boucle.
    Une boucle ne résout jamais ; c'est donc son point de départ, celui qui
    revient, que l'oreille prend pour maison — pas l'accord en cours.
-   Définition unique, partagée par le manche, la consigne et le bourdon :
-   sans elle les trois se contredisaient (le manche dessinait Do dorien
-   pendant que la consigne annonçait Fa dorien sur la mesure de F7).
-   Attention : sur une grille fonctionnelle (Autumn Leaves, dont le premier
-   accord est un ii), ce n'est pas la tonique réelle. C'est assumé — l'outil
-   sert les boucles modales, et mieux vaut que l'œil et l'oreille se trompent
-   ensemble que séparément. */
+   Définition unique, partagée par le manche, la consigne, le bourdon et le
+   coach : sans elle les quatre se contredisaient (le manche dessinait Do
+   dorien pendant que la consigne annonçait Fa dorien sur la mesure de F7).
+   Sur une grille fonctionnelle dont le premier accord est un ii, ce défaut
+   n'est pas la tonique réelle : une fiche de répertoire peut alors déclarer
+   sa tonalité, qui prévaut. Sans déclaration, le défaut s'applique. */
+/* Hauteur d'une tonalité déclarée ("Bb", "Gm", "F#m"…) — la qualité est
+   ignorée, la gamme est un réglage à part. null si illisible ou absente. */
+function pcTonalite(txt){
+  if(!txt) return null;
+  const m = String(txt).trim().match(/^([A-Ga-g])([#b]?)/);
+  return m ? pcDepuisNom(m[1], m[2]) : null;
+}
+/* Source unique de la tonique pour le manche, la consigne, le bourdon et le
+   coach. Priorité à la tonalité déclarée par la fiche : sur une grille
+   fonctionnelle (ii–V–I par exemple) le premier accord n'est pas la tonique.
+   Sans fiche, ou fiche muette, on retombe sur le premier accord de la boucle. */
 function toniqueModale(mesures, secours){
+  const dec = pcTonalite(typeof etat !== "undefined" ? etat.tonalite : "");
+  if(dec !== null) return dec;
   if(mesures && mesures.length && mesures[0].length) return mesures[0][0].pc;
   return (secours === undefined || secours === null) ? 0 : secours;
 }
@@ -603,7 +622,7 @@ const NOMS_CORDES = ["E","A","D","G","B","E"];
 const etat = {
   grade:0, saisie:"Am7 | D7", mesures:[], battues:4, tempo:76,
   zone:"0-5", duree:300, gamme:"majeur", toniqueModele:0,
-  subdivision:1, pad:true, bourdon:false, clic:true, miroir:false, contrainte:"", morceau:"", modeleActif:""
+  subdivision:1, pad:true, bourdon:false, clic:true, miroir:false, coach:true, contrainte:"", morceau:"", modeleActif:"", tonalite:""
 };
 let repertoire = [];
 
@@ -665,7 +684,7 @@ function sauver(){
       grade:etat.grade, saisie:etat.saisie, battues:etat.battues, tempo:etat.tempo,
       zone:etat.zone, duree:etat.duree, gamme:etat.gamme, toniqueModele:etat.toniqueModele,
       subdivision:etat.subdivision,
-      pad:etat.pad, bourdon:etat.bourdon, clic:etat.clic, miroir:etat.miroir, morceau:etat.morceau, modeleActif:etat.modeleActif
+      pad:etat.pad, bourdon:etat.bourdon, clic:etat.clic, miroir:etat.miroir, coach:etat.coach, morceau:etat.morceau, modeleActif:etat.modeleActif, tonalite:etat.tonalite
     }));
   }catch(e){}
 }
@@ -836,9 +855,11 @@ function boucleVisuelle(){
   while(fileAttente.length && fileAttente[0].t <= now){
     tempsAffiche = fileAttente.shift().i;
     peindreTemps();
+    if(tempsAffiche === 0) coachTop();
     const b = timeline[tempsAffiche];
     if(b && b.debutAccord) rendreManche();
   }
+  coachArmer();
   if(etat.duree > 0){
     const ecoule = performance.now();
     if(ecoule - dernierTic >= 250){
@@ -881,6 +902,7 @@ function arreter(fini){
   fileAttente = []; tempsAffiche = -1;
   if(fini) restant = 0;
   try{ if(verrou){ verrou.release(); verrou = null; } }catch(e){}
+  coachEffacer();
   peindreTemps(); peindreMinuteur(); majBoutonJouer();
 }
 function basculer(){ enMarche ? arreter(false) : demarrer(); }
@@ -959,6 +981,221 @@ function marques(){
 }
 
 /* ============================================================
+   6bis. COACH — consignes d'action pendant la lecture
+   Le coach propose, il ne vérifie rien : pas de micro, c'est
+   l'oreille qui juge. Une consigne = un texte bref (verbe d'abord,
+   le manche porte le reste) + un programme d'allumage calculé à
+   l'exécution contre la boucle courante — jamais écrit en dur, donc
+   générique : rien du répertoire n'entre ici. La durée se compte en
+   tours de boucle, pas en secondes : indépendante du tempo. La
+   couche coach SURIMPRIME le manche — marques() reste le fond
+   pédagogique du grade, le coach dessine par-dessus des anneaux
+   pointillés numérotés (l'ordre du geste). Deux temps avant un
+   changement d'accord, les cibles battent (.coach-armee sur le svg).
+   Les textes sont un premier jet : la pédagogie appartient à Jean.
+   ============================================================ */
+const TOURS_CONSIGNE = 4;
+const coach = {courant:null, resteTours:0};
+
+/* La banque. Clés d'une consigne : t (texte, ≤ 64 caractères),
+   chemin (spec d'allumage, absent = texte seul), si:"min"/"maj",
+   siAccords:N (boucle d'au moins N accords distincts). */
+const CONSIGNES = {
+ 0:[{t:"Monte trois notes vers l'ancrage", chemin:{type:"montee", vers:"tonique", n:3}},
+    {t:"Aller-retour : ancrage, quinte, ancrage", chemin:{type:"pilier"}},
+    {t:"Un tour de silence : écoute où est le repos"},
+    {t:"Termine chaque phrase sur l'ancrage", chemin:{type:"cible", vers:"tonique"}}],
+ 1:[{t:"Énonce un motif rythmique, répète-le tel quel"},
+    {t:"Reprends ton motif : change une seule durée"},
+    {t:"Un tour entier de silence, compte-le"},
+    {t:"Même rythme, autre corde"}],
+ 2:[{t:"Rejoue ton motif une octave plus haut", chemin:{type:"cellule"}},
+    {t:"Même motif, ordre des notes inversé", chemin:{type:"cellule"}},
+    {t:"Change une note du motif, garde le rythme", chemin:{type:"cellule"}},
+    {t:"Étire ton motif : mêmes notes, durées doublées", chemin:{type:"cellule"}}],
+ 3:[{t:"Atterris sur la tierce au changement", chemin:{type:"cible", vers:"tierceSuivant"}, siAccords:2},
+    {t:"Approche la tierce d'un demi-ton", chemin:{type:"approche", vers:"tierceCourant"}},
+    {t:"Tiens la septième : elle veut descendre", chemin:{type:"cible", vers:"septiemeCourant"}},
+    {t:"Vise la fondamentale du prochain accord", chemin:{type:"cible", vers:"fondSuivant"}, siAccords:2}],
+ 4:[{t:"Monte la gamme jusqu'à la tonique", chemin:{type:"montee", vers:"tonique", n:4}},
+    {t:"Redescends de la tonique par la gamme", chemin:{type:"descente", vers:"tonique", n:4}},
+    {t:"Trois notes, puis un silence d'un temps"},
+    {t:"Fais sonner la sixte du mode, tiens-la", chemin:{type:"cible", vers:"rel:9"}, si:"min"}],
+ 5:[{t:"Atterris sur la tierce au temps fort", chemin:{type:"cible", vers:"tierceCourant"}},
+    {t:"Cours la gamme, pose-toi au changement", chemin:{type:"cible", vers:"fondSuivant"}, siAccords:2},
+    {t:"Deux temps de course, deux temps tenus"},
+    {t:"Pars d'une note d'accord, reviens-y", chemin:{type:"cible", vers:"fondCourant"}}],
+ 6:[{t:"Brode : note, voisine du dessus, retour", chemin:{type:"broderie", vers:"tierceCourant"}},
+    {t:"Enclosure : dessus, dessous, cible", chemin:{type:"enclosure", vers:"fondCourant"}},
+    {t:"Appuie le demi-ton, puis résous-le", chemin:{type:"approche", vers:"tierceCourant"}},
+    {t:"Orne la quinte d'un mordant", chemin:{type:"broderie", vers:"quinteCourant"}}],
+ 7:[{t:"Phrase question : finis hors de l'accord"},
+    {t:"Phrase réponse : finis sur l'accord", chemin:{type:"cible", vers:"fondCourant"}},
+    {t:"Deux mesures de phrase, deux de silence"},
+    {t:"Question puis réponse : même longueur"}],
+ 8:[{t:"Tiens la note qui change de nom", chemin:{type:"double"}, siAccords:2},
+    {t:"Note commune : tiens-la à travers deux accords", chemin:{type:"commune"}, siAccords:2},
+    {t:"Rejoue ta phrase telle quelle sur l'accord suivant", siAccords:2}],
+ 9:[{t:"Anticipe : la note du prochain accord, un temps avant", chemin:{type:"cible", vers:"fondSuivant"}, siAccords:2},
+    {t:"Pédale : tiens la commune, laisse tourner", chemin:{type:"commune"}, siAccords:2},
+    {t:"Laisse la nappe finir sa phrase, réponds après"}],
+ 10:[{t:"Une note, quatre attaques différentes"},
+    {t:"Tire une note jusqu'à la suivante"},
+    {t:"Ta phrase la plus lente, vibrato compris"},
+    {t:"La blue note : entre les frettes, tire-la", chemin:{type:"cible", vers:"rel:6"}}]
+};
+
+/* Résolution d'une cible symbolique en pitch class — null si elle
+   n'existe pas dans le contexte courant (l'éligibilité s'en sert). */
+function resoudreCible(vers){
+  const cour = accordCourant(), suiv = accordSuivant();
+  const tonique = toniqueModale(etat.mesures, cour ? cour.pc : 0);
+  if(vers === "tonique") return tonique;
+  if(vers.slice(0,4) === "rel:"){
+    const n = parseInt(vers.slice(4), 10);
+    const mode = grade().mode;
+    /* en mode gamme/couplage, viser hors gamme contredirait le grade */
+    if((mode === "gamme" || mode === "couplage") && gammeCourante().iv.indexOf(n) < 0) return null;
+    return (tonique + n) % 12;
+  }
+  const a = (vers.slice(-7) === "Suivant") ? suiv : cour;
+  if(!a) return null;
+  if(vers.slice(0,4) === "fond") return a.pc;
+  const paire = function(x, y){
+    const d = a.iv.indexOf(x) >= 0 ? x : (a.iv.indexOf(y) >= 0 ? y : -1);
+    return d < 0 ? null : (a.pc + d) % 12;
+  };
+  if(vers.slice(0,6) === "tierce")   return paire(3, 4);
+  if(vers.slice(0,6) === "quinte")   return paire(7, 6);
+  if(vers.slice(0,8) === "septieme") return paire(10, 11);
+  return null;
+}
+function echelleModale(){
+  const cour = accordCourant();
+  const r = toniqueModale(etat.mesures, cour ? cour.pc : 0);
+  return gammeCourante().iv.map(function(n){ return (r + n) % 12; });
+}
+/* cheminCoach(spec) -> {pas:[{pc,ord}], pulse:[pc], dyn} ou null si
+   incalculable dans la boucle courante. spec absent = texte seul. */
+function cheminCoach(spec){
+  if(!spec) return {pas:[], pulse:[], dyn:""};
+  const T = spec.type;
+  if(T === "cellule"){
+    return {pas:cellule(etat.mesures).map(function(pc){ return {pc:pc, ord:""}; }), pulse:[], dyn:""};
+  }
+  if(T === "commune"){
+    const c = notesCommunes(accordsUniques(etat.mesures));
+    return c.length ? {pas:c.map(function(pc){ return {pc:pc, ord:""}; }), pulse:[], dyn:""} : null;
+  }
+  if(T === "double"){
+    const d = [];
+    for(let pc = 0; pc < 12; pc++) if(analyserNote(pc).double) d.push({pc:pc, ord:""});
+    return d.length ? {pas:d, pulse:[], dyn:""} : null;
+  }
+  if(T === "pilier"){
+    const t0 = resoudreCible("tonique");
+    return {pas:[{pc:t0, ord:"1·3"}, {pc:(t0 + 7) % 12, ord:"2"}], pulse:[], dyn:""};
+  }
+  const cible = resoudreCible(spec.vers);
+  if(cible === null || cible === undefined) return null;
+  if(T === "cible"){
+    return {pas:[{pc:cible, ord:""}], pulse:[cible], dyn:" → " + NOMS[cible]};
+  }
+  if(T === "approche"){
+    return {pas:[{pc:(cible + 11) % 12, ord:"1"}, {pc:cible, ord:"2"}], pulse:[], dyn:""};
+  }
+  const e = echelleModale(), L = e.length, idx = e.indexOf(cible);
+  if(T === "broderie"){
+    /* voisin diatonique du dessus ; chromatique si la cible est hors gamme */
+    const sup = idx >= 0 ? e[(idx + 1) % L] : (cible + 1) % 12;
+    return {pas:[{pc:cible, ord:"1·3"}, {pc:sup, ord:"2"}], pulse:[], dyn:""};
+  }
+  if(T === "enclosure"){
+    /* dessus diatonique, dessous demi-ton : l'encadrement bebop classique */
+    const sup = idx >= 0 ? e[(idx + 1) % L] : (cible + 2) % 12;
+    return {pas:[{pc:sup, ord:"1"}, {pc:(cible + 11) % 12, ord:"2"}, {pc:cible, ord:"3"}], pulse:[], dyn:""};
+  }
+  if(T === "montee" || T === "descente"){
+    if(idx < 0) return null;
+    const n = spec.n || 3, sens = (T === "montee") ? -1 : 1, pas = [];
+    for(let k = n - 1; k >= 0; k--){
+      pas.push({pc:e[((idx + sens * k) % L + L) % L], ord:String(n - k)});
+    }
+    return {pas:pas, pulse:[], dyn:""};
+  }
+  return null;
+}
+function consignesEligibles(gr){
+  const liste = CONSIGNES[gr] || [];
+  const accords = accordsUniques(etat.mesures);
+  const min = !!(accords[0] && accords[0].iv.indexOf(3) >= 0);
+  return liste.filter(function(c){
+    if(c.si === "min" && !min) return false;
+    if(c.si === "maj" && min) return false;
+    if(c.siAccords && accords.length < c.siAccords) return false;
+    if(c.chemin && !cheminCoach(c.chemin)) return false;
+    return true;
+  });
+}
+function tirerConsigne(gr, precedente){
+  const elig = consignesEligibles(gr);
+  if(!elig.length) return null;
+  if(elig.length === 1) return elig[0];
+  const pool = elig.filter(function(c){ return c !== precedente; });
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+function majCoach(){
+  const el = document.getElementById("coach");
+  if(!el) return;
+  if(!etat.coach || !coach.courant){ el.hidden = true; el.textContent = ""; return; }
+  const ch = cheminCoach(coach.courant.chemin);
+  el.innerHTML = "<b>Coach</b> — " + coach.courant.t + (ch && ch.dyn ? "<b>" + ch.dyn + "</b>" : "");
+  el.hidden = false;
+}
+function poserConsigne(c){
+  coach.courant = c || null;
+  coach.resteTours = TOURS_CONSIGNE;
+  majCoach();
+  rendreManche();
+}
+function coachEffacer(){
+  coach.courant = null; coach.resteTours = 0;
+  majCoach();
+  const svg = document.getElementById("manche");
+  if(svg) svg.classList.remove("coach-armee");
+  rendreManche();
+}
+/* Appelé à chaque haut de boucle (temps 0). */
+function coachTop(){
+  if(!etat.coach){ if(coach.courant) coachEffacer(); return; }
+  if(!coach.courant){
+    const c = tirerConsigne(etat.grade, null);
+    if(c) poserConsigne(c); else majCoach();
+    return;
+  }
+  coach.resteTours--;
+  if(coach.resteTours <= 0){
+    const s = tirerConsigne(etat.grade, coach.courant);
+    if(s) poserConsigne(s); else coachEffacer();
+  }
+}
+function distanceChangement(){
+  if(!timeline.length) return 0;
+  const t0 = tempsCourant();
+  for(let k = 1; k <= timeline.length; k++){
+    if(timeline[(t0 + k) % timeline.length].debutAccord) return k;
+  }
+  return 0;
+}
+/* Arme le battement des cibles deux temps avant le changement. */
+function coachArmer(){
+  const svg = document.getElementById("manche");
+  if(!svg) return;
+  const d = distanceChangement();
+  svg.classList.toggle("coach-armee", !!(etat.coach && coach.courant && enMarche && d > 0 && d <= 2));
+}
+
+/* ============================================================
    7. MANCHE (vertical, sillet en haut)
    ============================================================ */
 function rendreManche(){
@@ -1015,7 +1252,23 @@ function rendreManche(){
       if(mk.t) p.push('<text x="'+cx+'" y="'+(cy+4.5)+'" text-anchor="middle" font-family="var(--mono)" font-size="13" font-weight="600" fill="var(--encre)">'+mk.t+'</text>');
     }
   }
+  /* couche coach : anneaux pointillés numérotés, surimprimés sur toutes
+     les positions du pc dans la zone — y compris les cases vides, car
+     marques() peut ne pas montrer les notes du chemin (G0, G2…) */
+  if(etat.coach && coach.courant){
+    const ch = cheminCoach(coach.courant.chemin);
+    if(ch) ch.pas.forEach(function(pas){
+      for(let s=0;s<6;s++) for(let f=c0;f<=c1;f++){
+        if((CORDES[s] + f) % 12 !== pas.pc) continue;
+        const cx = x(s), cy = (f === 0) ? HAUT - 12 : y(f - c0) - PAS_Y / 2;
+        const pu = ch.pulse.indexOf(pas.pc) >= 0 ? ' class="coach-pulse"' : '';
+        p.push('<circle'+pu+' data-coach="1" cx="'+cx+'" cy="'+cy+'" r="21" fill="none" stroke="var(--nacre)" stroke-width="2" stroke-dasharray="4 3" opacity=".9"/>');
+        if(pas.ord) p.push('<text data-coach="1" x="'+(cx+15)+'" y="'+(cy-13)+'" font-family="var(--mono)" font-size="11" font-weight="700" fill="var(--nacre)">'+pas.ord+'</text>');
+      }
+    });
+  }
   svg.innerHTML = p.join("");
+  majCoach();
 
   const cour = accordCourant(), suiv = accordSuivant();
   document.getElementById("accordActuel").textContent = cour ? cour.sym : "—";
@@ -1220,6 +1473,11 @@ function choisirMorceau(i){
   document.getElementById("saisieAccords").value = m.mesures;
   peindreTempo(); rendreGrades(); majChampGamme();
   appliquerSaisie(m.mesures);
+  /* après la saisie, qui libère la tonalité : la fiche fait autorité sur la
+     tonique — sur une grille fonctionnelle (ii–V–I) le premier accord ne
+     l'est pas. Champ absent ou illisible : on retombe sur le premier accord. */
+  etat.tonalite = m.tonalite || "";
+  rendreManche(); rendreConsigne(); sauver();
 }
 function chargerRepertoireDistant(){
   if(typeof fetch !== "function") return;
@@ -1271,7 +1529,10 @@ function appliquerModele(i){
   sauver();
 }
 function appliquerSaisie(txt){
+  /* une grille tapée à la main ne relève d'aucune fiche : la tonalité
+     déclarée est libérée, comme le modèle. choisirMorceau la repose après. */
   etat.modeleActif = "";
+  etat.tonalite = "";
   cacherBulle();
   const r = lireBoucle(txt, etat.battues);
   const champ = document.getElementById("saisieAccords");
@@ -1310,7 +1571,7 @@ function remplirSelects(){
   document.getElementById("zone").value = etat.zone;
   document.getElementById("duree").value = String(etat.duree);
   document.getElementById("saisieAccords").value = etat.saisie;
-  [["basPad","pad"],["basBourdon","bourdon"],["basClic","clic"],["basMiroir","miroir"]].forEach(function(p){
+  [["basPad","pad"],["basBourdon","bourdon"],["basClic","clic"],["basMiroir","miroir"],["basCoach","coach"]].forEach(function(p){
     const el = document.getElementById(p[0]);
     if(el) el.setAttribute("aria-pressed", String(!!etat[p[1]]));
   });
@@ -1407,11 +1668,12 @@ function brancher(){
     if(e.target.closest("#bulle") || e.target.closest("[data-pc]")) return;
     cacherBulle();
   });
-  [["basPad","pad"],["basBourdon","bourdon"],["basClic","clic"],["basMiroir","miroir"]].forEach(function(p){
+  [["basPad","pad"],["basBourdon","bourdon"],["basClic","clic"],["basMiroir","miroir"],["basCoach","coach"]].forEach(function(p){
     document.getElementById(p[0]).addEventListener("click", function(){
       etat[p[1]] = !etat[p[1]];
       this.setAttribute("aria-pressed", String(etat[p[1]]));
       if(p[1] === "miroir") rendreManche();
+      if(p[1] === "coach" && !etat.coach) coachEffacer();
       sauver();
     });
   });
@@ -1436,9 +1698,11 @@ if(typeof document !== "undefined" && document.getElementById("manche")) init();
 
 if(typeof module !== "undefined" && module.exports){
   module.exports = {lireAccord, lireBoucle, accordsUniques, notesCommunes, notesMobiles,
-                    cellule, noteAncrage, toniqueModale, substitutTritonique, GAMMES, GRADES, NOMS, MAX_MESURES,
+                    cellule, noteAncrage, toniqueModale, pcTonalite, substitutTritonique, GAMMES, GRADES, NOMS, MAX_MESURES,
                     analyserNote, cleCorpus, contenuBulle, faitsNote, CORPUS, MODELES,
-                    montrerBulle, cacherBulle, appliquerSaisie, appliquerModele, rendreManche, rendreConsigne};
+                    montrerBulle, cacherBulle, appliquerSaisie, appliquerModele, rendreManche, rendreConsigne,
+                    CONSIGNES, cheminCoach, consignesEligibles, tirerConsigne, poserConsigne,
+                    coachEffacer, coachTop, majCoach, coach, resoudreCible, distanceChangement};
 }
 </script>
 </body>
