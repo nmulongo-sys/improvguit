@@ -46,6 +46,17 @@ header{display:flex;align-items:center;justify-content:space-between;gap:10px;pa
 .consigne p+p{margin-top:7px}
 .consigne .contrainte{font-size:13.5px;color:var(--nacre-faible);border-top:1px dashed var(--trait);margin-top:10px;padding-top:9px;display:flex;align-items:flex-start;gap:10px}
 .consigne .contrainte span{flex:1}
+/* Bulle pédagogique du manche */
+.manche-defil{position:relative}
+#manche circle[data-pc]{cursor:pointer}
+.bulle{position:absolute;z-index:40;max-width:270px;background:var(--ardoise-clair);border:1px solid var(--trait);border-left:3px solid var(--laiton);border-radius:6px;padding:11px 13px;box-shadow:0 10px 26px rgba(0,0,0,.55)}
+.bulle[hidden]{display:none}
+.bulle .bulle-note{font-family:var(--mono);font-weight:600;color:var(--laiton);font-size:15px}
+.bulle .bulle-faits{display:block;font-size:12px;color:var(--nacre-faible);margin:3px 0 7px;line-height:1.4}
+.bulle p{font-size:13.5px;line-height:1.5}
+.bulle .essai{display:inline-block;margin-top:9px;font-family:var(--mono);font-size:12px;color:var(--encre);background:var(--laiton);border-radius:4px;padding:5px 9px}
+.lien-bulle{font-family:var(--mono);font-size:12.5px;color:var(--laiton);text-decoration:underline;padding:0}
+.modele-theorie{font-size:13.5px;color:var(--nacre-faible);border-top:1px dashed var(--trait);margin-top:10px;padding-top:9px}
 .tirer{font-family:var(--mono);font-size:15px;color:var(--laiton);border:1px solid var(--trait);border-radius:4px;width:30px;height:30px;flex:0 0 auto;line-height:1}
 kbd{font-family:var(--mono);background:var(--ardoise-clair);border:1px solid var(--trait);border-radius:3px;padding:1px 6px;font-size:.92em;color:var(--nacre)}
 
@@ -202,7 +213,7 @@ input[type=text].erreur{border-color:#C4614F}
       <span class="position" id="position"></span>
     </div>
   </div>
-  <div class="manche-defil"><svg class="manche" id="manche" xmlns="http://www.w3.org/2000/svg"></svg></div>
+  <div class="manche-defil"><svg class="manche" id="manche" xmlns="http://www.w3.org/2000/svg"></svg><div class="bulle" id="bulle" hidden></div></div>
   <div class="legende" id="legende"></div>
 </div>
 
@@ -414,6 +425,156 @@ function toniqueModale(mesures, secours){
   if(mesures && mesures.length && mesures[0].length) return mesures[0][0].pc;
   return (secours === undefined || secours === null) ? 0 : secours;
 }
+
+/* ===== Bulles pédagogiques =====
+   Deux couches. La couche ANALYTIQUE (analyserNote) ne produit que des faits
+   dérivés de la boucle : degré dans chaque accord, note commune, approche
+   chromatique, appartenance à la gamme. La couche ÉDITORIALE (CORPUS) est un
+   texte par grade et par situation. Le grade ne change pas les faits — il
+   choisit lequel mérite d'être dit. Même principe que marques() : un seul
+   point de branchement de la pédagogie. */
+const NOM_DEGRE = {0:"fondamentale",1:"9ᵉ mineure",2:"9ᵉ",3:"tierce",4:"tierce",5:"11ᵉ",6:"quinte diminuée",7:"quinte",8:"quinte augmentée",9:"sixte",10:"septième",11:"7ᵉ majeure"};
+function roleDansAccord(pc, a){
+  const d = (pc - a.pc + 12) % 12;
+  return {d:d, dans:a.notes.indexOf(pc) >= 0, nom:NOM_DEGRE[d]};
+}
+function analyserNote(pc){
+  const accords = accordsUniques(etat.mesures);
+  const tonique = toniqueModale(etat.mesures, pc);
+  const rel = (pc - tonique + 12) % 12;
+  const roles = accords.map(function(a){ return {sym:a.sym, r:roleDansAccord(pc, a)}; });
+  const porteurs = roles.filter(function(x){ return x.r.dans; });
+  const degres = porteurs.map(function(x){ return x.r.d; })
+                         .filter(function(v,i,t){ return t.indexOf(v) === i; });
+  const cour = accordCourant() || accords[0] || null;
+  const rCour = cour ? roleDansAccord(pc, cour) : null;
+  const g = gammeCourante();
+  return {
+    pc:pc, rel:rel, roles:roles, porteurs:porteurs,
+    commune: accords.length > 0 && notesCommunes(accords).indexOf(pc) >= 0,
+    double: porteurs.length >= 2 && degres.length >= 2,
+    dansGamme: g.iv.indexOf(rel) >= 0,
+    enCellule: cellule(etat.mesures).indexOf(pc) >= 0,
+    mineur: !!(accords[0] && accords[0].iv.indexOf(3) >= 0),
+    cour:cour, rCour:rCour,
+    /* à un demi-ton d'une note de l'accord courant, sans en être */
+    approche: !!(cour && rCour && !rCour.dans &&
+      (cour.notes.indexOf((pc + 1) % 12) >= 0 || cour.notes.indexOf((pc + 11) % 12) >= 0))
+  };
+}
+function faitsNote(f){
+  const parts = [];
+  if(f.porteurs.length){
+    parts.push(f.porteurs.slice(0, 3).map(function(x){ return x.r.nom + " de " + x.sym; })
+      .join(" · ") + (f.porteurs.length > 3 ? " · …" : ""));
+  }else if(f.rCour){
+    parts.push(f.rCour.nom + " (tension) sur " + f.cour.sym);
+  }
+  if(f.commune) parts.push("commune à toute la boucle");
+  if(f.approche) parts.push("à un demi-ton d'une note de " + f.cour.sym);
+  const mode = GRADES[etat.grade].mode;
+  if((mode === "gamme" || mode === "couplage") && !f.dansGamme) parts.push("hors gamme");
+  return parts.join(" · ");
+}
+/* Le corpus. Clés par grade : "rel:N" (intervalle depuis la tonique modale),
+   "cellule", "double", "commune", "role:…" (degré dans l'accord courant),
+   "approche", "accord", "gamme", "hors", "*". Un garde-fou si:"min"/"maj"
+   réserve une entrée aux boucles mineures ou majeures. "e" renvoie vers un
+   modèle embarqué, par son nom (théorie -> exercice). */
+const CORPUS = {
+ 0:{"rel:0":{t:"Ta note d'ancrage : la maison. Tout l'exercice tient dans le trajet — la quitter, sentir que ça tire, revenir. L'oreille apprend d'abord où est le repos.", e:"I–IV"},
+    "rel:7":{t:"La quinte : l'autre pilier. Si stable qu'un accord de puissance s'en contente. Deuxième point d'appui quand la tonique est loin sous les doigts."},
+    "accord":{t:"Note de l'accord, donc consonante — mais ce grade ne cherche pas la consonance, il cherche le retour. Passe, et rentre à la note laiton."},
+    "*":{t:"Loin du nid. Une seule question ici : entends-tu, avant de la jouer, le chemin qui ramène à l'ancrage ?"}},
+ 1:{"*":{t:"À ce grade la hauteur est figée : le rythme seul fait la phrase. Un motif rythmique énoncé, répété, puis varié — et un vrai silence — c'est déjà de la musique, sur n'importe quelle note.", e:"I–vi"}},
+ 2:{"cellule":{t:"Une des trois notes de ta cellule. Le jeu : répéter le motif en ne changeant qu'une chose à la fois — l'ordre, le rythme, l'octave. Développer une idée vaut mieux qu'en empiler dix.", e:"i–IV (dorien)"},
+    "*":{t:"Hors de la cellule — donc hors jeu pour l'instant. La privation est volontaire : trois notes suffisent à une phrase, si tu les traites comme un motif."}},
+ 3:{"role:tierce":{t:"La tierce de l'accord en cours : la note qui dit majeur ou mineur. Pose-la sur un temps fort et l'accord est nommé sans accompagnement. C'est la première note-guide.", e:"ii–V"},
+    "role:septieme":{t:"La septième : l'autre note-guide, et une note à tendance — elle veut descendre d'un demi-ton sur l'accord suivant. Laisse-la faire : le voice leading tient dans ce geste.", e:"ii–V"},
+    "approche":{t:"À un demi-ton d'une note d'accord : une approche chromatique. Temps faible, puis glissement vers la cible au temps fort — le geste de base du bebop. Épice forte : à doser."},
+    "accord":{t:"Note de l'accord courant : une cible légitime. Ce grade ne demande qu'une chose — y atterrir exprès, pas par hasard."},
+    "*":{t:"Hors de l'accord courant. Rien d'interdit, mais ici une note étrangère est un élan, pas une arrivée : elle doit mener à une cible."}},
+ 4:{"rel:9":{si:"min", t:"La sixte majeure : la couleur dorienne — l'unique note qui sépare ce mode du mineur naturel. C'est le bouclage qui l'autorise ; fais-la sonner exprès, le bourdon dira si elle tient.", e:"i–IV (dorien)"},
+    "rel:10":{t:"La septième mineure : pas de sensible, donc pas d'appel à conclure. C'est elle qui permet aux boucles modales de tourner sans fin.", e:"i–♭VII"},
+    "rel:2":{t:"La seconde — la neuvième si tu la penses par-dessus l'accord. Couleur douce : elle frôle la tonique sans jamais la contredire."},
+    "gamme":{t:"Note du réservoir. Le piège n'est pas de la trouver, c'est de remplir : une gamme est un vivier, pas un toboggan. Laisse des silences."},
+    "hors":{t:"Hors gamme. À ce grade c'est un accident : corrige d'un demi-ton — et note où ta main aime se tromper, c'est une information."},
+    "*":{t:"Note du réservoir. Le piège n'est pas de la trouver, c'est de remplir. Laisse des silences."}},
+ 5:{"accord":{t:"Note d'accord et note de gamme à la fois : un point d'atterrissage. Le couplage, c'est courir dans la gamme et poser ce pied-là pile sur le temps fort.", e:"I–VI7–ii–V"},
+    "gamme":{t:"Note de passage : elle relie deux notes d'accord. Sa place est sur les temps faibles — c'est le contrat du grade."},
+    "hors":{t:"Hors gamme et hors accord : deux fautes à la fois ici. Un demi-ton de correction."},
+    "*":{t:"Cherche d'abord où sont les atterrissages ; le reste de la gamme est le chemin entre eux."}},
+ 6:{"rel:2":{t:"La seconde au-dessus de la tonique : la broderie supérieure. Tonique–seconde–tonique, c'est l'ouverture d'un des clichés les plus rebattus du jazz — et il marche toujours. Varie l'habit : hammer-on, mordant, appoggiature tenue.", e:"I–vi"},
+    "approche":{t:"Le demi-ton contre une note d'accord : la broderie chromatique. En passant, personne ne lui demande ses papiers ; tenue sur le temps fort, elle devient appoggiature — la dissonance appuyée qui réclame, puis obtient, sa résolution."},
+    "accord":{t:"Note stable : le pivot de l'ornement. La broderie tourne autour, l'appoggiature s'y résout, le mordant y revient. Sans elle, l'ornement n'est que du bruit."},
+    "*":{t:"À ce grade, chaque note est un appui ou l'ornement d'un appui. Celle-ci : décide, puis assume."}},
+ 7:{"rel:0":{t:"Terminer une phrase ici, c'est un point final — la réponse. Ne la donne pas trop tôt : garde-la pour la seconde moitié de l'échange."},
+    "accord":{t:"S'arrêter ici referme la phrase : une réponse. Trop de réponses d'affilée et le discours ronronne — ménage des questions."},
+    "gamme":{t:"S'arrêter sur une note hors accord laisse la phrase en suspens : une virgule, une question. Le discours classique alterne — une phrase qui demande, une qui répond, de même longueur.", e:"I–vi–ii–V"},
+    "*":{t:"Finir dessus laisse la phrase ouverte : une question. Fais-la suivre d'une phrase qui referme — même longueur, autre fin."}},
+ 8:{"double":{t:"Cette note ne bouge pas ; son nom, si — regarde la ligne du haut. Rien ne change sous le doigt, tout change autour : c'est le principe entier de la réinterprétation. Tiens-la à travers le changement et écoute-la se faire renommer.", e:"I–VI7–ii–V"},
+    "rel:6":{t:"Le triton de la tonique : la charnière de la substitution tritonique — deux dominantes opposées y partagent leurs notes-guides. L'app affiche le substitut à ce grade."},
+    "*":{t:"Demande-toi ce que cette note devient sur l'accord suivant. Réinterpréter, c'est renommer sans rejouer."}},
+ 9:{"commune":{t:"Commune à toute la boucle : une pédale possible. Tiens-la pendant que l'harmonie tourne dessous — la nappe change, pas toi. C'est l'interaction par l'immobilité."},
+    "*":{t:"La nappe tient l'harmonie : joue contre elle. Anticipe l'accord suivant d'un temps — la note arrive avant son accord, frotte, puis se fait rattraper. L'anticipation se résout toute seule.", e:"I–V–vi–IV"}},
+ 10:{"rel:6":{si:"min", t:"Entre la quarte et la quinte : la blue note. Elle vit entre les frettes plus que dessus — tire-la, écrase-la. C'est la note qui n'existe qu'au doigt."},
+     "*":{t:"Plus aucune note n'est plus juste qu'une autre. La question devient physique : ton attaque, ton vibrato, la durée que tu oses. Deux guitaristes, même note — deux voix."}}
+};
+function cleCorpus(grade, f){
+  const dedans = !!(f.rCour && f.rCour.dans);
+  const ROLE = {0:"role:fondamentale",3:"role:tierce",4:"role:tierce",7:"role:quinte",10:"role:septieme",11:"role:septieme"};
+  const cand = ["rel:" + f.rel];
+  if(f.enCellule) cand.push("cellule");
+  if(f.double) cand.push("double");
+  if(f.commune) cand.push("commune");
+  if(dedans && ROLE[f.rCour.d]) cand.push(ROLE[f.rCour.d]);
+  if(f.approche) cand.push("approche");
+  if(dedans) cand.push("accord");
+  cand.push(f.dansGamme ? "gamme" : "hors");
+  cand.push("*");
+  const dico = CORPUS[grade] || {};
+  for(let i = 0; i < cand.length; i++){
+    const e = dico[cand[i]];
+    if(!e) continue;
+    if(e.si === "min" && !f.mineur) continue;
+    if(e.si === "maj" && f.mineur) continue;
+    return cand[i];
+  }
+  return "*";
+}
+function contenuBulle(pc){
+  const f = analyserNote(pc);
+  const k = cleCorpus(etat.grade, f);
+  const e = (CORPUS[etat.grade] || {})[k] || {t:""};
+  const faits = faitsNote(f);
+  let h = '<span class="bulle-note">' + NOMS[pc] + '</span>'
+        + '<span class="bulle-faits">' + (faits || "note libre") + '</span>';
+  if(e.t) h += "<p>" + e.t + "</p>";
+  if(e.e){
+    let i = -1;
+    for(let j = 0; j < MODELES.length; j++) if(MODELES[j].nom === e.e){ i = j; break; }
+    if(i >= 0) h += '<button class="essai" data-essai="' + i + '">Essayer : ' + MODELES[i].nom + '</button>';
+  }
+  return h;
+}
+function montrerBulle(pc, px, py){
+  const b = document.getElementById("bulle");
+  if(!b) return;
+  b.innerHTML = contenuBulle(pc);
+  b.hidden = false;
+  const c = b.parentNode;
+  const lc = (c && c.clientWidth) || 320;
+  const lb = Math.min(270, lc - 16);
+  b.style.maxWidth = lb + "px";
+  let gx = (px || 0) - lb / 2;
+  gx = Math.max(8, Math.min(gx, lc - lb - 8));
+  b.style.left = gx + "px";
+  b.style.top = Math.max(8, (py || 0) + 14) + "px";
+}
+function cacherBulle(){
+  const b = document.getElementById("bulle");
+  if(b) b.hidden = true;
+}
 /* cellule de 3 notes : communes d'abord, complétées par les plus présentes */
 function cellule(mesures){
   const c = notesCommunes(accordsUniques(mesures)).slice(0, 3);
@@ -442,7 +603,7 @@ const NOMS_CORDES = ["E","A","D","G","B","E"];
 const etat = {
   grade:0, saisie:"Am7 | D7", mesures:[], battues:4, tempo:76,
   zone:"0-5", duree:300, gamme:"majeur", toniqueModele:0,
-  subdivision:1, pad:true, bourdon:false, clic:true, miroir:false, contrainte:"", morceau:""
+  subdivision:1, pad:true, bourdon:false, clic:true, miroir:false, contrainte:"", morceau:"", modeleActif:""
 };
 let repertoire = [];
 
@@ -461,14 +622,24 @@ const CONTOURS_G2 = [
   ["descend","descend"], ["reste","monte"], ["monte","reste"], ["descend","reste"]
 ];
 const MODELES = [
-  {nom:"I–vi",         g:"G0 · G1 · G2", d:[[0,""],[9,"m"]]},
-  {nom:"I–IV",         g:"G0 · G1",      d:[[0,""],[5,""]]},
-  {nom:"i–♭VII",       g:"G0 · G1 · G4", d:[[0,"m"],[10,""]]},
-  {nom:"i–IV (dorien)",g:"G2 · G4",      d:[[0,"m7"],[5,"7"]]},
-  {nom:"ii–V",         g:"G2 · G3",      d:[[2,"m7"],[7,"7"]]},
-  {nom:"I–vi–ii–V",    g:"G3",           d:[[0,"maj7"],[9,"m7"],[2,"m7"],[7,"7"]]},
-  {nom:"I–V–vi–IV",    g:"G4",           d:[[0,""],[7,""],[9,"m"],[5,""]]},
-  {nom:"I–VI7–ii–V",   g:"G5",           d:[[0,"maj7"],[9,"7"],[2,"m7"],[7,"7"]]}
+  /* p = la théorie du modèle : un mot d'explication et la note à aller voir
+     sur le manche (deg, en demi-tons depuis la tonique du modèle). */
+  {nom:"I–vi",         g:"G0 · G1 · G2", d:[[0,""],[9,"m"]],
+   p:{deg:4, t:"I et vi partagent deux notes sur trois — la paire la plus douce du répertoire. La tierce du I est aussi la quinte du vi : elle ne bouge pas quand l'accord change."}},
+  {nom:"I–IV",         g:"G0 · G1",      d:[[0,""],[5,""]],
+   p:{deg:0, t:"Un pas dans le cycle des quartes : la fondamentale du I devient la quinte du IV. La note-pivot ne bouge pas, l'harmonie si."}},
+  {nom:"i–♭VII",       g:"G0 · G1 · G4", d:[[0,"m"],[10,""]],
+   p:{deg:10, t:"Le ♭VII vient du mineur naturel : pas de sensible, donc pas d'appel à conclure — la boucle tourne. La septième mineure est la note qui l'affirme."}},
+  {nom:"i–IV (dorien)",g:"G2 · G4",      d:[[0,"m7"],[5,"7"]],
+   p:{deg:9, t:"C'est la tierce majeure du IV — le ♮6 du mode — qui rend cette boucle dorienne. Remplace-la par la sixte mineure : retour au mineur naturel."}},
+  {nom:"ii–V",         g:"G2 · G3",      d:[[2,"m7"],[7,"7"]],
+   p:{deg:0, t:"Tierces et septièmes se répondent : la 7ᵉ du ii — la tonique elle-même — descend d'un demi-ton sur la tierce du V. Deux notes racontent tout le mouvement."}},
+  {nom:"I–vi–ii–V",    g:"G3",           d:[[0,"maj7"],[9,"m7"],[2,"m7"],[7,"7"]],
+   p:{deg:0, t:"Le turnaround : quatre accords qui ramènent au départ. La tonique y change trois fois de fonction — fondamentale du I, tierce du vi, 7ᵉ du ii."}},
+  {nom:"I–V–vi–IV",    g:"G4",           d:[[0,""],[7,""],[9,"m"],[5,""]],
+   p:{deg:0, t:"La grille la plus partagée de la pop — elle n'appartient à aucun morceau. Réservoir idéal : la tonique est dans trois accords sur quatre."}},
+  {nom:"I–VI7–ii–V",   g:"G5",           d:[[0,"maj7"],[9,"7"],[2,"m7"],[7,"7"]],
+   p:{deg:1, t:"Le VI7 est une dominante secondaire : sa tierce, hors gamme, pousse vers le ii. C'est la note à viser au vol — elle n'existe qu'une mesure."}}
 ];
 const GRADES = [
   {n:0,  court:"G0",  titre:"Ancrage",          mode:"une"},
@@ -494,7 +665,7 @@ function sauver(){
       grade:etat.grade, saisie:etat.saisie, battues:etat.battues, tempo:etat.tempo,
       zone:etat.zone, duree:etat.duree, gamme:etat.gamme, toniqueModele:etat.toniqueModele,
       subdivision:etat.subdivision,
-      pad:etat.pad, bourdon:etat.bourdon, clic:etat.clic, miroir:etat.miroir, morceau:etat.morceau
+      pad:etat.pad, bourdon:etat.bourdon, clic:etat.clic, miroir:etat.miroir, morceau:etat.morceau, modeleActif:etat.modeleActif
     }));
   }catch(e){}
 }
@@ -599,24 +770,43 @@ function bourdon(t, pc, duree){
   const fin = t + duree;
   const g = ctx.createGain();
   g.gain.setValueAtTime(0.0001, t);
-  /* même amplitude que la nappe : le bourdon sonnant une octave plus bas,
-     où l'oreille est moins sensible, l'égalité de niveau le place tout de
-     même légèrement en dessous — ce qu'on attend d'un socle. */
-  g.gain.exponentialRampToValueAtTime(0.085, t + 0.08);
-  g.gain.setValueAtTime(0.085, fin);
+  /* quatre sources au lieu de deux, et un spectre plus dense qu'au triangle :
+     le gain descend pour retrouver la même sensation de niveau. */
+  g.gain.exponentialRampToValueAtTime(0.05, t + 0.08);
+  g.gain.setValueAtTime(0.05, fin);
   /* l'extinction déborde sur le tour suivant, dont l'attaque a déjà
      commencé : les deux se croisent et la couture ne s'entend pas */
   g.gain.exponentialRampToValueAtTime(0.0001, fin + 0.12);
+  /* Dent de scie plutôt que triangle : le triangle n'a que des harmoniques
+     impaires en 1/n², soit presque une sinusoïde — c'est-à-dire le signal
+     d'un test auditif. La dent de scie porte toutes les harmoniques en 1/n,
+     le spectre d'une corde frottée. Le passe-bas retire le mordant qu'elles
+     apportent dans l'aigu, et laisse la matière dans le médium grave —
+     bande qu'un haut-parleur de téléphone restitue, au contraire du 65 Hz
+     de la fondamentale. */
+  const filtre = ctx.createBiquadFilter();
+  filtre.type = "lowpass";
+  filtre.frequency.value = 1100;
+  filtre.Q.value = 0.7;
+  filtre.connect(g);
   g.connect(maitre);
-  /* fondamentale et son octave, sans quinte : une quinte se heurterait au
-     bémol 5 d'un premier accord demi-diminué. La tonique seule suffit à
-     fixer le centre, et laisse la nappe donner le mode. */
+  /* Chaque hauteur est dédoublée à cinq centièmes de demi-ton près. Les deux
+     copies dérivent l'une contre l'autre : battement très lent sur la
+     fondamentale, de plus en plus rapide sur les harmoniques. C'est ce
+     mouvement, et non le niveau, qui sépare un bourdon de vielle d'une
+     sinusoïde tenue.
+     Fondamentale et octave seulement, sans quinte : une quinte se heurterait
+     au bémol 5 d'un premier accord demi-diminué. La tonique seule fixe le
+     centre, et laisse la nappe donner le mode. */
   [36 + pc, 48 + pc].forEach(function(midi){
-    const o = ctx.createOscillator();
-    o.type = "triangle";
-    o.frequency.value = 440 * Math.pow(2, (midi - 69) / 12);
-    o.connect(g);
-    o.start(t); o.stop(fin + 0.2);
+    const base = 440 * Math.pow(2, (midi - 69) / 12);
+    [-5, 5].forEach(function(cents){
+      const o = ctx.createOscillator();
+      o.type = "sawtooth";
+      o.frequency.value = base * Math.pow(2, cents / 1200);
+      o.connect(filtre);
+      o.start(t); o.stop(fin + 0.2);
+    });
   });
 }
 function ordonnanceur(){
@@ -814,13 +1004,14 @@ function rendreManche(){
   }
   for(let s=0;s<6;s++){
     for(let f=c0;f<=c1;f++){
-      const mk = m[(CORDES[s] + f) % 12];
+      const npc = (CORDES[s] + f) % 12;
+      const mk = m[npc];
       if(!mk) continue;
       const cx = x(s);
       const cy = (f === 0) ? HAUT - 12 : y(f - c0) - PAS_Y / 2;
       const r = mk.petit ? 6 : 17;
-      if(mk.halo) p.push('<circle cx="'+cx+'" cy="'+cy+'" r="'+(r+5)+'" fill="none" stroke="var(--vert)" stroke-width="2" opacity=".85"/>');
-      p.push('<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="'+mk.c+'"/>');
+      if(mk.halo) p.push('<circle data-pc="'+npc+'" cx="'+cx+'" cy="'+cy+'" r="'+(r+5)+'" fill="none" stroke="var(--vert)" stroke-width="2" opacity=".85"/>');
+      p.push('<circle data-pc="'+npc+'" cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="'+mk.c+'"/>');
       if(mk.t) p.push('<text x="'+cx+'" y="'+(cy+4.5)+'" text-anchor="middle" font-family="var(--mono)" font-size="13" font-weight="600" fill="var(--encre)">'+mk.t+'</text>');
     }
   }
@@ -967,6 +1158,15 @@ function rendreConsigne(){
     h = "<p>Aucune contrainte. Les grades précédents sont censés jouer tout seuls.</p>";
   }
 
+  if(etat.modeleActif){
+    let mm = null;
+    for(let i = 0; i < MODELES.length; i++) if(MODELES[i].nom === etat.modeleActif){ mm = MODELES[i]; break; }
+    if(mm && mm.p){
+      const pcM = (toniqueModale(etat.mesures, 0) + mm.p.deg) % 12;
+      h += '<p class="modele-theorie">' + mm.nom + ' — ' + mm.p.t +
+           ' <button class="lien-bulle" data-bulle-pc="' + pcM + '">' + NOMS[pcM] + ' sur le manche →</button></p>';
+    }
+  }
   document.getElementById("consigneCorps").innerHTML = h;
   document.getElementById("blocContrainte").hidden = !contrainte;
   if(contrainte) document.getElementById("texteContrainte").textContent = contrainte;
@@ -1065,8 +1265,14 @@ function appliquerModele(i){
   etat.morceau = "";
   document.getElementById("repertoire").value = "";
   appliquerSaisie(txt);
+  /* après la saisie, qui remet le champ à zéro */
+  etat.modeleActif = m.nom;
+  rendreConsigne();
+  sauver();
 }
 function appliquerSaisie(txt){
+  etat.modeleActif = "";
+  cacherBulle();
   const r = lireBoucle(txt, etat.battues);
   const champ = document.getElementById("saisieAccords");
   const msg = document.getElementById("msgErreur");
@@ -1118,6 +1324,7 @@ function brancher(){
     this.setAttribute("aria-expanded", String(ouvert));
   });
   document.getElementById("grades").addEventListener("click", function(e){
+    cacherBulle();
     const b = e.target.closest(".grade"); if(!b) return;
     etat.grade = parseInt(b.dataset.g, 10);
     etat.contrainte = "";
@@ -1129,6 +1336,7 @@ function brancher(){
   });
   document.getElementById("repertoire").addEventListener("change", function(){
     if(this.value === ""){ etat.morceau = ""; sauver(); return; }
+    etat.modeleActif = "";
     choisirMorceau(parseInt(this.value, 10));
   });
   document.getElementById("fichierRep").addEventListener("change", function(){
@@ -1171,6 +1379,34 @@ function brancher(){
   document.getElementById("duree").addEventListener("change", function(){ etat.duree = parseInt(this.value,10); restant = 0; peindreMinuteur(); sauver(); });
   document.getElementById("gamme").addEventListener("change", function(){ etat.gamme = this.value; rendreManche(); rendreConsigne(); sauver(); });
   document.getElementById("btnTirer").addEventListener("click", tirerContrainte);
+  document.getElementById("manche").addEventListener("click", function(e){
+    const c = e.target && e.target.closest ? e.target.closest("[data-pc]") : null;
+    if(!c){ cacherBulle(); return; }
+    const cont = document.querySelector(".manche-defil");
+    let rx = 0, ry = 0;
+    if(cont && cont.getBoundingClientRect){
+      const rc = cont.getBoundingClientRect();
+      rx = (e.clientX || 0) - (rc.left || 0) + (cont.scrollLeft || 0);
+      ry = (e.clientY || 0) - (rc.top || 0) + (cont.scrollTop || 0);
+    }
+    montrerBulle(parseInt(c.getAttribute("data-pc"), 10), rx, ry);
+  });
+  document.getElementById("bulle").addEventListener("click", function(e){
+    const b = e.target && e.target.closest ? e.target.closest("[data-essai]") : null;
+    if(b){ appliquerModele(parseInt(b.getAttribute("data-essai"), 10)); cacherBulle(); }
+  });
+  document.addEventListener("click", function(e){
+    if(!e.target || !e.target.closest) return;
+    const l = e.target.closest("[data-bulle-pc]");
+    if(l){
+      const cont = document.querySelector(".manche-defil");
+      montrerBulle(parseInt(l.getAttribute("data-bulle-pc"), 10),
+        ((cont && cont.clientWidth) || 320) / 2, 30);
+      return;
+    }
+    if(e.target.closest("#bulle") || e.target.closest("[data-pc]")) return;
+    cacherBulle();
+  });
   [["basPad","pad"],["basBourdon","bourdon"],["basClic","clic"],["basMiroir","miroir"]].forEach(function(p){
     document.getElementById(p[0]).addEventListener("click", function(){
       etat[p[1]] = !etat[p[1]];
@@ -1200,7 +1436,9 @@ if(typeof document !== "undefined" && document.getElementById("manche")) init();
 
 if(typeof module !== "undefined" && module.exports){
   module.exports = {lireAccord, lireBoucle, accordsUniques, notesCommunes, notesMobiles,
-                    cellule, noteAncrage, toniqueModale, substitutTritonique, GAMMES, GRADES, NOMS, MAX_MESURES};
+                    cellule, noteAncrage, toniqueModale, substitutTritonique, GAMMES, GRADES, NOMS, MAX_MESURES,
+                    analyserNote, cleCorpus, contenuBulle, faitsNote, CORPUS, MODELES,
+                    montrerBulle, cacherBulle, appliquerSaisie, appliquerModele, rendreManche, rendreConsigne};
 }
 </script>
 </body>
