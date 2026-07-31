@@ -64,6 +64,8 @@ t("aide mentionne le token _", /_<\/kbd>/.test(doc.querySelector(".aide").innerH
 /* accès aux fonctions internes via le scope du script */
 const F = win.eval("({lireAccord, lireBoucle, accordsUniques, notesCommunes, notesMobiles," +
   " cellule, noteAncrage, toniqueModale, poidsNotes, substitutTritonique, construireTimeline," +
+  " analyserNote, cleCorpus, contenuBulle, faitsNote, CORPUS, MODELES," +
+  " montrerBulle, cacherBulle, appliquerSaisie, appliquerModele, rendreManche, rendreConsigne," +
   " dureeAccord, etat, GRADES, GAMMES, NOMS, MAX_MESURES," +
   " get timeline(){return timeline}})");
 
@@ -434,6 +436,7 @@ t("la sauvegarde ne porte pas les mesures analysées", !("mesures" in sauve));
 win.eval(`
   window.__evts = [];
   window.__rampes = [];
+  window.__filtres = [];
   function __noeud(){
     const g = {
       value:0,
@@ -452,10 +455,19 @@ win.eval(`
       currentTime:0,
       destination:{},
       createGain:__noeud,
+      createBiquadFilter:function(){
+        const f = __noeud();
+        f.Q = { value:0 };
+        window.__filtres.push(f);
+        return f;
+      },
       createOscillator:function(){
         const o = __noeud();
         const orig = o.start;
-        o.start = function(t){ window.__evts.push({t:t, f:o.frequency.value}); orig(t); };
+        o.start = function(t){
+          window.__evts.push({ t:t, f:o.frequency.value, forme:o.type });
+          orig(t);
+        };
         return o;
       }
     };
@@ -464,7 +476,7 @@ win.eval(`
 
 function jouerUnTour(txt, battues, sub, tempo, opts) {
   opts = opts || {};
-  win.eval("window.__evts = []; window.__rampes = [];");
+  win.eval("window.__evts = []; window.__rampes = []; window.__filtres = [];");
   F.etat.battues = battues;
   F.etat.tempo = tempo || 60;
   F.etat.subdivision = sub;
@@ -524,40 +536,62 @@ t("l'arrêt ramène le maître à zéro", rampes.some(function (r) { return r[0]
 /* --- Bourdon : une tenue par tour de boucle, sur la tonique modale --- */
 const HZ = pc => 440 * Math.pow(2, ((36 + pc) - 69) / 12);
 const arrondi = (x, n) => Math.round(x * n) / n;
+const CENTS = c => Math.pow(2, c / 1200);
 
 evts = jouerUnTour("Cm7 | F7", 4, 1, 60, { clic:false, bourdon:false });
 eq("bourdon coupé : rien ne sonne", evts.length, 0);
 
 evts = jouerUnTour("Cm7 | F7", 4, 1, 60, { clic:false, bourdon:true });
-eq("bourdon actif : 2 oscillateurs pour un tour", evts.length, 2);
-eq("les deux partent en tête de boucle", evts[0].t === 0 && evts[1].t === 0, true);
-eq("hauteur = Do2, la tonique modale et non Fa", arrondi(evts[0].f, 100), arrondi(HZ(0), 100));
-eq("le second est à l'octave", Math.round(evts[1].f / evts[0].f), 2);
+eq("bourdon actif : 4 oscillateurs pour un tour", evts.length, 4);
+t("tous partent en tête de boucle", evts.every(function(e){ return e.t === 0; }));
+t("dent de scie, pas triangle", evts.every(function(e){ return e.forme === "sawtooth"; }));
+
+/* deux hauteurs, chacune dédoublée à cinq centièmes de demi-ton près */
+eq("grave bas : Do2 moins 5 centièmes", arrondi(evts[0].f, 100), arrondi(HZ(0) * CENTS(-5), 100));
+eq("grave haut : Do2 plus 5 centièmes",  arrondi(evts[1].f, 100), arrondi(HZ(0) * CENTS(5), 100));
+eq("la paire aiguë est à l'octave", Math.round(evts[2].f / evts[0].f), 2);
+t("les deux copies ne sont pas à l'unisson", evts[0].f !== evts[1].f);
+/* le battement doit rester lent : au-delà, ce n'est plus un bourdon mais un vibrato */
+t("battement inférieur à 1 Hz sur la fondamentale", Math.abs(evts[1].f - evts[0].f) < 1);
+/* et chaque copie doit rester assez près de la hauteur juste pour que le
+   désaccord ne s'entende pas comme une fausse note */
+t("chaque copie à moins de 6 centièmes de la hauteur juste",
+  evts.slice(0,2).every(function(e){
+    return Math.abs(1200 * Math.log2(e.f / HZ(0))) <= 6;
+  }));
+
+/* passe-bas : sans lui la dent de scie mord */
+eq("un passe-bas par bourdon", win.eval("window.__filtres.length"), 1);
+eq("type passe-bas", win.eval("window.__filtres[0].type"), "lowpass");
+t("coupure dans le médium", win.eval("window.__filtres[0].frequency.value") <= 2000);
+t("pas de résonance à la coupure", win.eval("window.__filtres[0].Q.value") <= 1);
 
 evts = jouerUnTour("Am7 | D7", 4, 1, 60, { clic:false, bourdon:true });
-eq("Am7 | D7 : bourdon sur La2", arrondi(evts[0].f, 100), arrondi(HZ(9), 100));
+eq("Am7 | D7 : bourdon sur La2", arrondi(evts[0].f, 10), arrondi(HZ(9) * CENTS(-5), 10));
 
 /* quatre mesures : toujours une seule tenue, pas une par mesure */
 evts = jouerUnTour("C | G | Am | F", 4, 1, 60, { clic:false, bourdon:true });
-eq("4 mesures : une seule tenue", evts.length, 2);
+eq("4 mesures : une seule tenue", evts.length, 4);
 eq("elle part sur la première mesure", evts[0].t, 0);
+eq("un seul filtre, pas un par mesure", win.eval("window.__filtres.length"), 1);
 
 /* le bourdon s'ajoute aux clics sans les perturber */
 evts = jouerUnTour("C | G", 4, 1, 60, { clic:true, bourdon:true });
-eq("8 clics + 2 oscillateurs de bourdon", evts.length, 10);
+eq("8 clics + 4 oscillateurs de bourdon", evts.length, 12);
+eq("les clics restent en onde carrée",
+   evts.filter(function(e){ return e.forme === "square"; }).length, 8);
 
-/* niveau : jamais au-dessus de la nappe */
+/* niveau */
 evts = jouerUnTour("Cm7 | F7", 4, 1, 60, { clic:false, bourdon:true });
 const cibles = win.eval("window.__rampes.slice()")
   .filter(function(r){ return r[0] === "exp" && r[1] > 0.001; })
   .map(function(r){ return r[1]; });
-eq("le bourdon monte au niveau de la nappe", Math.max.apply(null, cibles), 0.085);
+eq("gain du bourdon", Math.max.apply(null, cibles), 0.05);
 t("le bourdon ne dépasse pas la nappe", Math.max.apply(null, cibles) <= 0.085);
 
 /* aucune tierce : le bourdon pose la tonique, la nappe donne le mode */
-evts = jouerUnTour("Cm7 | F7", 4, 1, 60, { clic:false, bourdon:true });
 t("aucune tierce dans le bourdon",
-  evts.every(function(e){ return Math.abs(e.f - HZ(3)) > 1 && Math.abs(e.f - HZ(4)) > 1; }));
+  evts.every(function(e){ return Math.abs(e.f - HZ(3)) > 2 && Math.abs(e.f - HZ(4)) > 2; }));
 
 F.etat.bourdon = false;
 
@@ -565,6 +599,104 @@ F.etat.bourdon = false;
 /* ------------------------------------------------------------------
    Rapport
    ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------
+   12. Bulles pédagogiques — analyse, corpus, aller-retours théorie/exercice
+   ------------------------------------------------------------------ */
+F.etat.battues = 4; F.etat.subdivision = 1; F.etat.tempo = 60;
+F.etat.toniqueModele = 0; F.etat.gamme = "mineur"; F.etat.grade = 6;
+F.appliquerSaisie("Am7 | D7");
+
+let fN = F.analyserNote(11);                    /* Si */
+eq("Si sur Am7|D7 : rel 2 depuis La", fN.rel, 2);
+eq("Si n'appartient à aucun accord", fN.porteurs.length, 0);
+t("Si est une approche (entre La et Do)", fN.approche);
+eq("G6 : la broderie prime sur l'approche", F.cleCorpus(6, fN), "rel:2");
+t("le texte G6 nomme la broderie et le cliché",
+  /broderie/.test(F.CORPUS[6]["rel:2"].t) && /clich/.test(F.CORPUS[6]["rel:2"].t));
+
+fN = F.analyserNote(9);                         /* La */
+t("La : dans les deux accords, commune", fN.porteurs.length === 2 && fN.commune);
+t("La : fondamentale de l'un, quinte de l'autre — double fonction", fN.double);
+eq("G8 : la double fonction prime", F.cleCorpus(8, fN), "double");
+eq("G9 : la note commune devient pédale", F.cleCorpus(9, fN), "commune");
+
+fN = F.analyserNote(6);                         /* Fa# */
+t("Fa# : tierce de D7 seulement",
+  fN.porteurs.length === 1 && fN.porteurs[0].r.nom === "tierce");
+eq("Fa# : sixte majeure de La", fN.rel, 9);
+eq("G4 : la couleur dorienne prime", F.cleCorpus(4, fN), "rel:9");
+eq("…et renvoie vers le modèle dorien", F.CORPUS[4]["rel:9"].e, "i–IV (dorien)");
+
+fN = F.analyserNote(0);                         /* Do : tierce de Am7, l'accord courant à l'arrêt */
+eq("G3 : Do est une cible — tierce de l'accord courant", F.cleCorpus(3, fN), "role:tierce");
+
+/* garde-fou si:"min" : sur une boucle majeure, pas de texte dorien */
+F.appliquerSaisie("C | G");
+fN = F.analyserNote(9);
+t("rel:9 réservé aux boucles mineures", F.cleCorpus(4, fN) !== "rel:9");
+
+/* couverture : 11 grades × 12 notes -> toujours un nom et un texte */
+F.appliquerSaisie("Am7 | D7");
+let manque = 0;
+for(let g = 0; g <= 10; g++){
+  F.etat.grade = g;
+  for(let pc = 0; pc < 12; pc++){
+    const c = F.contenuBulle(pc);
+    if(!/<p>/.test(c) || c.indexOf(F.NOMS[pc]) < 0) manque++;
+  }
+}
+eq("132 combinaisons grade × note : toutes ont un texte", manque, 0);
+
+/* chaque renvoi théorie -> exercice vise un modèle existant */
+let orphelins = [];
+Object.keys(F.CORPUS).forEach(function(g){
+  Object.keys(F.CORPUS[g]).forEach(function(k){
+    const e = F.CORPUS[g][k];
+    if(e.e && !F.MODELES.some(function(m){ return m.nom === e.e; })) orphelins.push(g + "/" + k);
+  });
+});
+eq("aucun renvoi théorie → exercice orphelin", orphelins.join(","), "");
+t("chaque modèle porte sa théorie et une note à voir",
+  F.MODELES.every(function(m){ return m.p && m.p.t && m.p.deg >= 0 && m.p.deg < 12; }));
+
+/* interface : pastilles cliquables, bulle, aller-retours */
+F.etat.grade = 4; F.etat.gamme = "mineur"; F.rendreManche(); F.rendreConsigne();
+t("la bulle existe et démarre cachée", doc.getElementById("bulle").hidden === true);
+const pastilles = doc.querySelectorAll("#manche circle[data-pc]");
+t("les pastilles portent leur classe de hauteur", pastilles.length > 0);
+
+const pB = doc.querySelector('#manche circle[data-pc="11"]');
+t("pastille Si présente en La mineur", !!pB);
+pB.dispatchEvent(new win.Event("click", { bubbles: true }));
+t("clic sur la pastille : bulle visible", doc.getElementById("bulle").hidden === false);
+t("la bulle nomme la note", doc.getElementById("bulle").innerHTML.indexOf(">" + F.NOMS[11] + "<") >= 0);
+
+/* théorie -> exercice : Fa# en dorien propose le modèle, qui se charge */
+F.etat.gamme = "dorien"; F.rendreManche();
+const pF = doc.querySelector('#manche circle[data-pc="6"]');
+t("pastille Fa# présente en dorien", !!pF);
+pF.dispatchEvent(new win.Event("click", { bubbles: true }));
+const btn = doc.querySelector("#bulle .essai");
+t("la bulle propose d'essayer le modèle dorien", !!btn && btn.textContent.indexOf("dorien") >= 0);
+btn.dispatchEvent(new win.Event("click", { bubbles: true }));
+eq("l'essai charge le modèle — tonique Do : Cm7 | F7",
+   doc.getElementById("saisieAccords").value, "Cm7 | F7");
+eq("le modèle actif est mémorisé", F.etat.modeleActif, "i–IV (dorien)");
+t("la bulle s'est refermée", doc.getElementById("bulle").hidden === true);
+
+/* exercice -> théorie : la consigne pointe le ♮6 du modèle */
+const lien = doc.querySelector("[data-bulle-pc]");
+t("la consigne renvoie vers le manche", !!lien);
+eq("…sur le ♮6 du modèle appliqué en Do", lien.getAttribute("data-bulle-pc"), "9");
+lien.dispatchEvent(new win.Event("click", { bubbles: true }));
+t("le lien rouvre la bulle", doc.getElementById("bulle").hidden === false);
+t("…sur la bonne note", doc.getElementById("bulle").innerHTML.indexOf(">" + F.NOMS[9] + "<") >= 0);
+
+/* la saisie manuelle libère le modèle */
+F.appliquerSaisie("C | G");
+eq("saisie manuelle : modèle libéré", F.etat.modeleActif, "");
+t("la sauvegarde porte le modèle actif", /modeleActif:etat\.modeleActif/.test(HTML));
+
 console.log("\n" + (ok + ko) + " assertions — " + ok + " au vert, " + ko + " au rouge");
 console.log(REP
   ? "répertoire privé présent : série complète (38 fiches)"
