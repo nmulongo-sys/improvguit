@@ -3,7 +3,7 @@
 Entraîneur d'improvisation à la guitare, organisé en grades : à chaque grade, une seule variable est libre. Fichier HTML unique, hors ligne, pensé pour cinq minutes par jour sur téléphone.
 
 **En ligne** : https://nmulongo-sys.github.io/improvguit/
-**Statut** : révision du 2026-07-31 (v5) • fichier unique `index.html`, aucune dépendance externe.
+**Statut** : révision du 2026-07-31 (v6) • fichier unique `index.html`, aucune dépendance externe.
 
 ## Principe
 
@@ -113,6 +113,52 @@ npm test
 **Le répertoire étant hors dépôt, les séries qui en dépendent sont ignorées s'il est absent** : un clone nu valide le moteur et l'interface (260 assertions) ; avec `repertoire.json` posé à côté, la vérification fiche par fiche s'ajoute, pour un total qui dépend du nombre de fiches. Le test annonce lequel des deux régimes il a suivi.
 
 ## Journal de développement
+
+### 2026-07-31 — v6, coach pendant la lecture
+
+Changement de véhicule pédagogique. La bulle au toucher supposait de lâcher le manche
+pour viser l'écran — geste que personne ne fait en jouant — et elle butait sur une
+limite de fond : une note immobile ne peut pas dire si elle *sera* une note de passage,
+une broderie ou un encadrement, puisque cela dépend de ce qui l'entoure. Tout le savoir
+séquentiel restait donc hors de portée. Le coach le débloque : la consigne arrive
+pendant que la boucle tourne, et le manche allume le geste.
+
+- **Bandeau `#coach`** entre l'en-tête et le manche défilant. Texte bref, verbe d'abord,
+  64 caractères au plus : c'est le manche qui porte le détail. Bascule « Consignes du
+  coach » dans les réglages, active par défaut, persistée.
+- **Trente-huit consignes** réparties sur les onze grades, trois au minimum par grade,
+  avec garde-fous `si:"min"/"maj"` et `siAccords:N`.
+- **`cheminCoach()`** — dix types de gestes calculés à l'exécution contre la boucle
+  courante : montée, descente, broderie, encadrement, approche, cible, pilier, cellule,
+  notes communes, notes à double nom. Rien n'est écrit en dur, ce qui garde le fichier
+  générique. Un chemin incalculable dans le contexte rend la consigne inéligible plutôt
+  que fausse : sur un accord unique, les grades qui exigent deux accords se taisent.
+- **`resoudreCible()`** résout `tonique`, `rel:N` et fondamentale/tierce/quinte/septième
+  de l'accord courant ou du suivant. Refuse une cible hors gamme quand le grade impose
+  la gamme.
+- **Couche coach dans `rendreManche()`** : anneaux pointillés numérotés surimprimés sur
+  les marques du grade, y compris sur les positions que le grade ne montre pas — sans
+  quoi un geste vers une note masquée serait indésignable.
+- **Cycle en unités musicales, pas en secondes** : une consigne vit quatre tours de
+  boucle, donc sa durée suit le tempo. Rotation au haut de boucle, jamais deux fois la
+  même d'affilée. Deux temps avant un changement d'accord, les cibles battent.
+  Branché sur la file de l'ordonnanceur audio, qui portait déjà l'horodatage de chaque
+  temps ; aucune horloge nouvelle.
+- **Le coach propose, il ne vérifie rien.** Pas de micro, pas d'écoute : c'est l'oreille
+  qui juge. L'outil reste un pupitre.
+
+**Tonique déclarée.** `toniqueModale()` accepte désormais une tonalité venue de la fiche
+de répertoire, qui prévaut sur son défaut. Le défaut — fondamentale du premier accord —
+reste inchangé et sert de repli : il est juste pour une boucle modale, faux dès que la
+grille est fonctionnelle et commence sur un ii. Une saisie manuelle libère la tonalité
+déclarée, une valeur illisible retombe silencieusement sur le défaut, une fiche muette
+se comporte exactement comme avant. La source reste unique : manche, consigne, bourdon
+et coach lisent la même fonction et ne peuvent pas se contredire.
+
+**Hygiène.** Deux commentaires citant des morceaux ont été retirés ; plus aucun titre ne
+figure dans le fichier public.
+
+- 503 assertions jsdom au vert.
 
 ### 2026-07-31 — v5, bulles pédagogiques sur le manche
 
