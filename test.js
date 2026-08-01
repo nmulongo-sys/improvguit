@@ -63,7 +63,7 @@ t("aide mentionne le token _", /_<\/kbd>/.test(doc.querySelector(".aide").innerH
 
 /* accès aux fonctions internes via le scope du script */
 const F = win.eval("({lireAccord, lireBoucle, accordsUniques, notesCommunes, notesMobiles," +
-  " cellule, noteAncrage, toniqueModale, poidsNotes, substitutTritonique, construireTimeline," +
+  " cellule, noteAncrage, toniqueModale, pcTonalite, poidsNotes, substitutTritonique, construireTimeline," +
   " analyserNote, cleCorpus, contenuBulle, faitsNote, CORPUS, MODELES," +
   " montrerBulle, cacherBulle, appliquerSaisie, appliquerModele, rendreManche, rendreConsigne," +
   " dureeAccord, etat, GRADES, GAMMES, NOMS, MAX_MESURES," +
@@ -297,6 +297,19 @@ REP.morceaux.forEach(function (m) {
     m.subdivision === undefined || [1, 2, 3].indexOf(Number(m.subdivision)) >= 0);
   t("code cohérent avec le grade : " + m.code,
     String(m.code).indexOf("G" + m.grade + "-") === 0);
+
+  /* La tonalité déclarée doit être effectivement lue. Sans cette assertion,
+     une fiche pouvait annoncer « Do majeur » et l'app entendre Ré sans que
+     rien ne proteste. Seule exception : une fiche sans centre unique, qui
+     doit alors retomber franchement sur le premier accord. */
+  const SANS_CENTRE = ["G10-1"];
+  if (SANS_CENTRE.indexOf(m.code) < 0) {
+    t("tonalité lisible : " + m.code + " « " + m.tonalite + " »",
+      F.pcTonalite(m.tonalite) !== null);
+  } else {
+    t("tonalité sans centre unique → repli assumé : " + m.code,
+      F.pcTonalite(m.tonalite) === null);
+  }
   t("au moins un accord : " + m.code, F.accordsUniques(res.mesures).length >= 1);
 
   /* aucune mesure ne dépasse le nombre de temps */
@@ -483,6 +496,13 @@ function jouerUnTour(txt, battues, sub, tempo, opts) {
   F.etat.clic = ("clic" in opts) ? opts.clic : true;
   F.etat.pad = ("pad" in opts) ? opts.pad : false;
   F.etat.bourdon = ("bourdon" in opts) ? opts.bourdon : false;
+  /* Une boucle passée ici tient lieu de saisie manuelle : elle repart donc
+     sans tonalité déclarée, comme le fait appliquerSaisie. Sans cette remise
+     à zéro, la dernière fiche chargée par le parcours d'interface teignait
+     tout le reste de la série audio — c'est ce qui a fait sonner le bourdon
+     sur Mi après « Mi (pédale) ». On peut en déclarer une exprès pour
+     vérifier justement que la fiche pilote le bourdon. */
+  F.etat.tonalite = ("tonalite" in opts) ? opts.tonalite : "";
   const res = F.lireBoucle(txt, battues);
   F.etat.mesures = res.mesures;
   F.construireTimeline();
@@ -568,6 +588,18 @@ t("pas de résonance à la coupure", win.eval("window.__filtres[0].Q.value") <= 
 
 evts = jouerUnTour("Am7 | D7", 4, 1, 60, { clic:false, bourdon:true });
 eq("Am7 | D7 : bourdon sur La2", arrondi(evts[0].f, 10), arrondi(HZ(9) * CENTS(-5), 10));
+
+/* Tonalité déclarée : le bourdon la suit, y compris quand le premier accord
+   n'est pas la tonique — c'est tout l'intérêt du champ. En solfège français,
+   puisque c'est ce qu'écrivent les fiches. */
+evts = jouerUnTour("Cm7 F7 | Bbmaj7", 4, 1, 60,
+  { clic:false, bourdon:true, tonalite:"Si♭ majeur" });
+eq("fiche « Si♭ majeur » : le bourdon tient Si♭, pas Do",
+  arrondi(evts[0].f, 10), arrondi(HZ(10) * CENTS(-5), 10));
+evts = jouerUnTour("Cm7 F7 | Bbmaj7", 4, 1, 60,
+  { clic:false, bourdon:true, tonalite:"Cinq centres modaux" });
+eq("tonalité sans centre : le bourdon retombe sur le premier accord",
+  arrondi(evts[0].f, 10), arrondi(HZ(0) * CENTS(-5), 10));
 
 /* quatre mesures : toujours une seule tenue, pas une par mesure */
 evts = jouerUnTour("C | G | Am | F", 4, 1, 60, { clic:false, bourdon:true });
@@ -828,6 +860,42 @@ eq("tonalité : Bbm (bémol puis mineur)", T.pcTonalite("Bbm"), 10);
 eq("tonalité : minuscule tolérée", T.pcTonalite("a"), 9);
 t("tonalité : chaîne vide → null", T.pcTonalite("") === null);
 t("tonalité : illisible → null", T.pcTonalite("mineur") === null);
+
+/* Solfège français : c'est la notation des fiches du répertoire. Avant ce
+   correctif, « Do majeur » était capté par le D anglo-saxon et lu Ré,
+   « Fa♯ mineur » lu Fa — six fiches sur trente-huit fausses d'un demi-ton,
+   sans erreur visible, sur le manche comme au bourdon et au coach. */
+eq("tonalité FR : Do majeur (n'est pas Ré)", T.pcTonalite("Do majeur"), 0);
+eq("tonalité FR : Do dorien", T.pcTonalite("Do dorien"), 0);
+eq("tonalité FR : Ré mineur", T.pcTonalite("Ré mineur"), 2);
+eq("tonalité FR : Re sans accent", T.pcTonalite("Re mineur"), 2);
+eq("tonalité FR : Mi majeur", T.pcTonalite("Mi majeur"), 4);
+eq("tonalité FR : Fa mineur", T.pcTonalite("Fa mineur"), 5);
+eq("tonalité FR : Sol mixolydien", T.pcTonalite("Sol mixolydien"), 7);
+eq("tonalité FR : La mineur", T.pcTonalite("La mineur"), 9);
+eq("tonalité FR : Si dorien", T.pcTonalite("Si dorien"), 11);
+eq("tonalité FR : Si♭ dorien (bémol typographique)", T.pcTonalite("Si♭ dorien"), 10);
+eq("tonalité FR : Mi♭ mineur", T.pcTonalite("Mi♭ mineur"), 3);
+eq("tonalité FR : La♭ majeur", T.pcTonalite("La♭ majeur"), 8);
+eq("tonalité FR : Fa♯ mineur (n'est pas Fa)", T.pcTonalite("Fa♯ mineur"), 6);
+eq("tonalité FR : bémol en lettre collée", T.pcTonalite("Sib majeur"), 10);
+eq("tonalité FR : parenthèse après le nom", T.pcTonalite("Fa (blues)"), 5);
+eq("tonalité FR : Mi (pédale)", T.pcTonalite("Mi (pédale)"), 4);
+eq("tonalité FR : nom seul", T.pcTonalite("Mi"), 4);
+/* plusieurs centres : le premier nommé l'emporte, c'est le point de départ */
+eq("tonalité FR : Ré / Do / Si♭ majeur → Ré", T.pcTonalite("Ré / Do / Si♭ majeur"), 2);
+eq("tonalité FR : Do mineur → Ré♭ majeur → Do", T.pcTonalite("Do mineur → Ré♭ majeur"), 0);
+eq("tonalité FR : Sol mineur / Si♭ majeur → Sol", T.pcTonalite("Sol mineur / Si♭ majeur"), 7);
+/* un mot qui commence comme une note n'est pas une note */
+t("tonalité : « dorien » n'est pas Ré", T.pcTonalite("dorien") === null);
+t("tonalité : « mineur » n'est pas Mi", T.pcTonalite("mineur") === null);
+t("tonalité : « Cinq centres modaux » n'est pas Do",
+  T.pcTonalite("Cinq centres modaux") === null);
+t("tonalité : « aucune » n'est pas La", T.pcTonalite("aucune") === null);
+/* la notation anglo-saxonne survit intacte au passage du français */
+eq("tonalité : Bb toujours lu après l'ajout du FR", T.pcTonalite("Bb"), 10);
+eq("tonalité : Bb majeur (suffixe de qualité)", T.pcTonalite("Bb majeur"), 10);
+eq("tonalité : C n'est pas mangé par « do »", T.pcTonalite("C"), 0);
 
 /* sans tonalité déclarée : le premier accord fait la tonique (inchangé) */
 F.etat.tonalite = "";
