@@ -427,12 +427,42 @@ function noteAncrage(mesures){
    Sur une grille fonctionnelle dont le premier accord est un ii, ce défaut
    n'est pas la tonique réelle : une fiche de répertoire peut alors déclarer
    sa tonalité, qui prévaut. Sans déclaration, le défaut s'applique. */
-/* Hauteur d'une tonalité déclarée ("Bb", "Gm", "F#m"…) — la qualité est
-   ignorée, la gamme est un réglage à part. null si illisible ou absente. */
+/* Hauteur d'une tonalité déclarée. Deux notations sont admises :
+   — le solfège français, celui des fiches du répertoire : « La mineur »,
+     « Si♭ dorien », « Fa♯ mineur », « Mi (pédale) » ;
+   — la notation anglo-saxonne : « Bb », « Gm », « F#m », « a ».
+   La qualité est ignorée — la gamme est un réglage à part. null si illisible
+   ou absente, ce qui fait retomber toniqueModale sur le premier accord.
+
+   Le français passe EN PREMIER, et il le faut : la lettre D captait « Do
+   majeur » et le rendait Ré, F captait « Fa♯ » et le rendait Fa. Un demi-ton
+   faux, sans message d'erreur, propagé du même coup au manche, au bourdon, à
+   la consigne et au coach — puisque toniqueModale est leur source unique.
+   Symétriquement, la branche anglo-saxonne exige maintenant que ce qui suit
+   la lettre soit vide, non alphabétique, ou un suffixe de qualité : sans
+   quoi « Cinq centres modaux » se lisait Do.
+   L'altération se colle au nom (♭ ♯ ou b #). Sur une fiche à plusieurs
+   centres (« Ré / Do / Si♭ majeur », « Do mineur → Ré♭ majeur »), c'est le
+   premier nommé qui l'emporte : c'est celui d'où l'oreille part. */
+const NOTE_FR = {do:"C", "ré":"D", re:"D", mi:"E", fa:"F", sol:"G", si:"B", la:"A"};
+const RE_TON_FR = /^(do|ré|re|mi|fa|sol|si|la)([♭b]|[♯#])?(?![a-zA-ZÀ-ÿ])/i;
+const RE_TON_EN = /^([A-Ga-g])([♭b]|[♯#])?(.*)$/;
+const RE_QUALITE = /^(m|maj|min|M|dim|aug|sus|°|ø)/;
+function alterationSimple(a){
+  if(a === "♯" || a === "#") return "#";
+  if(a === "♭" || a === "b") return "b";
+  return "";
+}
 function pcTonalite(txt){
   if(!txt) return null;
-  const m = String(txt).trim().match(/^([A-Ga-g])([#b]?)/);
-  return m ? pcDepuisNom(m[1], m[2]) : null;
+  const s = String(txt).trim();
+  const fr = s.match(RE_TON_FR);
+  if(fr) return pcDepuisNom(NOTE_FR[fr[1].toLowerCase()], alterationSimple(fr[2]));
+  const en = s.match(RE_TON_EN);
+  if(!en) return null;
+  const reste = en[3].trim();
+  if(reste !== "" && /^[a-zA-ZÀ-ÿ]/.test(reste) && !RE_QUALITE.test(reste)) return null;
+  return pcDepuisNom(en[1], alterationSimple(en[2]));
 }
 /* Source unique de la tonique pour le manche, la consigne, le bourdon et le
    coach. Priorité à la tonalité déclarée par la fiche : sur une grille
