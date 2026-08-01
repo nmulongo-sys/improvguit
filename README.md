@@ -110,9 +110,54 @@ npm test
 
 `test.js` charge `index.html` dans un DOM et le pilote comme un utilisateur. Couverture : parseur et plafond d'emplacements aux quatre métriques, token de prolongation et identité par référence, tenue par-dessus la barre, ligne de temps et durées d'accord, notes communes et mobiles, ancrage pondéré, substitut tritonique, ordonnanceur audio sur `AudioContext` factice (comptage et placement des clics, tenue et hauteur du bourdon, coupure du maître à l'arrêt), rendu des onze grades, modèles, réglages, saisie invalide, persistance, bulles pédagogiques (analyse, couverture des 132 combinaisons grade × note, renvois théorie ↔ exercice non orphelins, clics réels dans le DOM), absence de dépendance externe et de contenu pédagogique dans `index.html`.
 
-**Le répertoire étant hors dépôt, les séries qui en dépendent sont ignorées s'il est absent** : un clone nu valide le moteur et l'interface (260 assertions) ; avec `repertoire.json` posé à côté, la vérification fiche par fiche s'ajoute, pour un total qui dépend du nombre de fiches. Le test annonce lequel des deux régimes il a suivi.
+**Le répertoire étant hors dépôt, les séries qui en dépendent sont ignorées s'il est absent** : un clone nu valide le moteur et l'interface (532 assertions) ; avec `repertoire.json` posé à côté, la vérification fiche par fiche s'ajoute — grille lisible, longueur annoncée, gamme connue, tonalité effectivement lue, absence du titre et de l'artiste dans `index.html` — pour 1 640 assertions sur les trente-huit fiches actuelles. Le test annonce lequel des deux régimes il a suivi.
 
 ## Journal de développement
+
+### 2026-08-01 — v6.1, la tonalité déclarée est enfin lue
+
+Correctif. La v6 avait ajouté le champ `tonalite`, qui laisse une fiche déclarer sa
+tonique quand le premier accord de la boucle n'est pas la maison — cas de toute grille
+fonctionnelle qui ouvre sur un ii. La fonction de lecture, elle, n'acceptait que la
+notation anglo-saxonne (`Bb`, `Gm`, `F#m`), alors que les fiches écrivent en solfège
+français. Sur trente-huit fiches, aucune n'était lue comme prévu :
+
+- **vingt-huit retombaient en `null`**, donc sur le premier accord — dégradé, mais sain ;
+- **six étaient lues faux, en silence** : la lettre `D` captait « Do majeur », « Do
+  dorien », « Do mineur » et les rendait Ré ; `F` captait « Fa♯ mineur » et le rendait
+  Fa. Un demi-ton d'écart, propagé du même coup au manche, au bourdon, à la consigne et
+  au coach, puisque `toniqueModale()` est leur source unique. Aucun message d'erreur :
+  l'app se contentait de jouer juste à côté ;
+- trois tombaient justes par coïncidence (`F` = Fa) ;
+- une, sans centre unique, n'avait de toute façon rien à déclarer.
+
+`pcTonalite()` lit désormais les deux notations, le français d'abord — sans quoi la
+branche anglo-saxonne recapterait « Do ». Symétriquement, cette branche exige maintenant
+que ce qui suit la lettre soit vide, non alphabétique, ou un suffixe de qualité
+(`m`, `maj`, `min`, `dim`, `aug`, `sus`) : sans cela, « Cinq centres modaux » se lisait
+Do. L'altération se colle au nom, symbole typographique ou lettre (`Si♭` comme `Sib`).
+Sur une fiche à plusieurs centres — « Ré / Do / Si♭ majeur », « Do mineur → Ré♭ majeur »
+— le premier nommé l'emporte : c'est celui d'où l'oreille part.
+
+Résultat : trente-sept fiches sur trente-huit sont lues, la dernière retombant
+volontairement sur le premier accord faute de centre unique.
+
+Le trou de couverture qui avait laissé passer le bug est bouché à son tour. Le harnais
+validait la lisibilité de la grille, du tempo, de la gamme, de la subdivision — jamais
+celle de la tonalité. **Chaque fiche doit maintenant produire une hauteur**, à
+l'exception nommément listée de celle qui n'a pas de centre. S'y ajoutent la lecture du
+solfège français sous toutes ses formes rencontrées, la non-régression de la notation
+anglo-saxonne, le refus des mots qui commencent comme une note (« mineur » n'est pas Mi,
+« dorien » n'est pas Ré), et deux assertions audio qui vérifient que le bourdon suit
+bien la tonalité déclarée plutôt que le premier accord.
+
+Enfin, `jouerUnTour()` repart d'une tonalité neutre, comme le ferait une saisie
+manuelle. Sans cela la dernière fiche chargée par le parcours d'interface teignait toute
+la série audio qui suivait — le correctif a d'abord fait sonner le bourdon sur Mi, ce
+qui était le harnais, pas l'app.
+
+Aucun changement d'interface, aucun changement de comportement quand la fiche ne déclare
+rien. **532 assertions** sans le répertoire, **1 640** avec.
 
 ### 2026-07-31 — v6, coach pendant la lecture
 
