@@ -5,3 +5,12 @@ repertoire.json
 # Validation locale
 node_modules/
 index.v*.html
+
+# Déploiement Cloudflare (tout ceci reste sur le poste)
+site/
+robots.txt
+deployer.ps1
+deployer.sh
+.wrangler/
+.dev.vars
+*.log

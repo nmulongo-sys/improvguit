@@ -1,0 +1,40 @@
+# improvguit — en-têtes Cloudflare Pages
+# Ignoré par GitHub Pages : committer ce fichier n'a aucun effet sur la démo.
+#
+# CSP calibrée sur index.html v6.2 (93 052 o), vérifié le 2026-08-02 :
+#   - un seul <style> inline, un seul <script> inline
+#   - aucun handler inline (on*=), aucun eval, aucun new Function
+#   - aucune ressource externe : pas de CDN, pas de police distante,
+#     pas de <img>, <audio>, <iframe>, <link>
+#   - une seule requête réseau : fetch("repertoire.json") -> connect-src 'self'
+#   - audio entièrement synthétisé (WebAudio, aucun fichier)
+# Si une ressource externe est ajoutée un jour, élargir ici AVANT de déployer :
+# la CSP échoue en silence côté app.
+
+/*
+  Content-Security-Policy: default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: no-referrer
+  Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), microphone=(), payment=(), usb=()
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Resource-Policy: same-origin
+  X-Robots-Tag: noindex, nofollow, noarchive
+# HSTS : à décommenter une fois le domaine définitif arrêté.
+#  Strict-Transport-Security: max-age=31536000; includeSubDomains
+
+# L'app doit se recharger à jour : pas de cache long sur le document.
+/
+  Cache-Control: no-cache, must-revalidate
+
+/index.html
+  Cache-Control: no-cache, must-revalidate
+
+/404.html
+  Cache-Control: no-cache, must-revalidate
+
+# Le répertoire change plus souvent que l'app et ne doit jamais rester en cache.
+# Le fetch côté client passe déjà {cache:"no-store"} ; on le double côté serveur.
+/repertoire.json
+  Cache-Control: no-store
+  Content-Type: application/json; charset=utf-8

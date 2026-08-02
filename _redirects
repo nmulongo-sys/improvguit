@@ -1,0 +1,10 @@
+# improvguit — redirections Cloudflare Pages
+# Ignoré par GitHub Pages.
+#
+# Aucune règle active : le site est d'un seul fichier, tout chemin inconnu
+# tombe sur 404.html, ce qui est le comportement voulu.
+#
+# Gabarit si le besoin se présente (code 301 permanent, 302 temporaire) :
+#   /ancien-chemin   /nouveau-chemin   301
+#
+# Ne PAS rediriger /repertoire.json : l'app le demande à cet emplacement exact.
