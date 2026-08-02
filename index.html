@@ -105,7 +105,11 @@ input[type=text].erreur{border-color:#C4614F}
 .interrupteur::after{content:"";position:absolute;top:3px;left:3px;width:17px;height:17px;border-radius:50%;background:var(--nacre-faible);transition:.16s}
 .interrupteur[aria-pressed="true"]{background:var(--laiton);border-color:var(--laiton)}
 .interrupteur[aria-pressed="true"]::after{left:22px;background:var(--encre)}
-.coach{padding:9px 12px;border-bottom:1px solid var(--trait);background:rgba(214,167,60,.10);color:var(--nacre);font-size:15px;line-height:1.35}
+/* Bandeau lu à un mètre, une guitare dans les bras : à 15 px sur un
+   téléphone, il fallait s'y pencher. L'étiquette passe en chapeau discret
+   pour rendre toute la largeur à la consigne elle-même. */
+.coach{padding:11px 14px;border-bottom:1px solid var(--trait);background:rgba(214,167,60,.10);color:var(--nacre);font-size:18px;line-height:1.45}
+.coach .etiq{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--laiton);opacity:.75;margin-bottom:2px}
 .coach b{color:var(--laiton);font-weight:600}
 .coach[hidden]{display:none}
 @keyframes coachBat{0%,100%{opacity:.95}50%{opacity:.2}}
@@ -1179,7 +1183,7 @@ function majCoach(){
   if(!el) return;
   if(!etat.coach || !coach.courant){ el.hidden = true; el.textContent = ""; return; }
   const ch = cheminCoach(coach.courant.chemin);
-  el.innerHTML = "<b>Coach</b> — " + coach.courant.t + (ch && ch.dyn ? "<b>" + ch.dyn + "</b>" : "");
+  el.innerHTML = '<span class="etiq">Coach</span>' + coach.courant.t + (ch && ch.dyn ? "<b>" + ch.dyn + "</b>" : "");
   el.hidden = false;
 }
 function poserConsigne(c){
@@ -1228,6 +1232,27 @@ function coachArmer(){
 /* ============================================================
    7. MANCHE (vertical, sillet en haut)
    ============================================================ */
+/* Choisit UNE position par étape du chemin, dans la zone visible, en
+   enchaînant au plus près : la première au milieu du cadre, les suivantes
+   au plus proche de la précédente. Le déplacement le long du manche coûte
+   plus cher à la main que le saut de corde, d'où le poids 0,6 sur les
+   cordes. Une étape dont le pc n'apparaît nulle part dans la zone est
+   sautée plutôt que forcée. Séparée du rendu pour être vérifiable seule. */
+function positionsChemin(pas, c0, c1){
+  const sortie = [];
+  let ref = null;
+  for(let i=0;i<pas.length;i++){
+    let best = null, bestD = Infinity;
+    for(let s=0;s<6;s++) for(let f=c0;f<=c1;f++){
+      if((CORDES[s] + f) % 12 !== pas[i].pc) continue;
+      const d = ref ? Math.abs(f - ref.f) + Math.abs(s - ref.s) * 0.6
+                    : Math.abs(f - (c0 + c1) / 2) + Math.abs(s - 2.5) * 0.6;
+      if(d < bestD){ bestD = d; best = {s:s, f:f, pc:pas[i].pc, ord:pas[i].ord}; }
+    }
+    if(best){ sortie.push(best); ref = best; }
+  }
+  return sortie;
+}
 function rendreManche(){
   const svg = document.getElementById("manche");
   const z = etat.zone.split("-");
@@ -1282,20 +1307,31 @@ function rendreManche(){
       if(mk.t) p.push('<text x="'+cx+'" y="'+(cy+4.5)+'" text-anchor="middle" font-family="var(--mono)" font-size="13" font-weight="600" fill="var(--encre)">'+mk.t+'</text>');
     }
   }
-  /* couche coach : anneaux pointillés numérotés, surimprimés sur toutes
-     les positions du pc dans la zone — y compris les cases vides, car
-     marques() peut ne pas montrer les notes du chemin (G0, G2…) */
+  /* couche coach : le geste, une position par étape et une seule.
+     Chaque étape allumait auparavant toutes ses occurrences dans la zone —
+     six cordes, cinq cases : une enclosure de trois étapes posait jusqu'à
+     quinze anneaux et le manche devenait illisible. Le coach montre un
+     geste ; la carte, c'est marques(). Les positions sont enchaînées au
+     plus près, comme la main le ferait, et reliées par un filet pour que
+     le trajet se lise d'un coup d'œil. Surimprimé sur marques(), y compris
+     les cases vides, car le grade peut ne pas montrer les notes du chemin
+     (G0, G2…). */
   if(etat.coach && coach.courant){
     const ch = cheminCoach(coach.courant.chemin);
-    if(ch) ch.pas.forEach(function(pas){
-      for(let s=0;s<6;s++) for(let f=c0;f<=c1;f++){
-        if((CORDES[s] + f) % 12 !== pas.pc) continue;
-        const cx = x(s), cy = (f === 0) ? HAUT - 12 : y(f - c0) - PAS_Y / 2;
-        const pu = ch.pulse.indexOf(pas.pc) >= 0 ? ' class="coach-pulse"' : '';
-        p.push('<circle'+pu+' data-coach="1" cx="'+cx+'" cy="'+cy+'" r="21" fill="none" stroke="var(--nacre)" stroke-width="2" stroke-dasharray="4 3" opacity=".9"/>');
-        if(pas.ord) p.push('<text data-coach="1" x="'+(cx+15)+'" y="'+(cy-13)+'" font-family="var(--mono)" font-size="11" font-weight="700" fill="var(--nacre)">'+pas.ord+'</text>');
+    if(ch){
+      const pts = positionsChemin(ch.pas, c0, c1).map(function(q){
+        return {q:q, cx:x(q.s), cy:(q.f === 0) ? HAUT - 12 : y(q.f - c0) - PAS_Y / 2};
+      });
+      for(let i=1;i<pts.length;i++){
+        p.push('<line data-coach="1" x1="'+pts[i-1].cx+'" y1="'+pts[i-1].cy+'" x2="'+pts[i].cx+'" y2="'+pts[i].cy+
+               '" stroke="var(--nacre)" stroke-width="1.5" stroke-dasharray="3 4" opacity=".45"/>');
       }
-    });
+      pts.forEach(function(o){
+        const pu = ch.pulse.indexOf(o.q.pc) >= 0 ? ' class="coach-pulse"' : '';
+        p.push('<circle'+pu+' data-coach="1" cx="'+o.cx+'" cy="'+o.cy+'" r="21" fill="none" stroke="var(--nacre)" stroke-width="2.5" stroke-dasharray="4 3" opacity=".95"/>');
+        if(o.q.ord) p.push('<text data-coach="1" x="'+(o.cx+17)+'" y="'+(o.cy-14)+'" text-anchor="middle" font-family="var(--mono)" font-size="13" font-weight="700" fill="var(--nacre)" stroke="var(--bois)" stroke-width="3" paint-order="stroke">'+o.q.ord+'</text>');
+      });
+    }
   }
   svg.innerHTML = p.join("");
   majCoach();
@@ -1732,7 +1768,7 @@ if(typeof module !== "undefined" && module.exports){
                     analyserNote, cleCorpus, contenuBulle, faitsNote, CORPUS, MODELES,
                     montrerBulle, cacherBulle, appliquerSaisie, appliquerModele, rendreManche, rendreConsigne,
                     CONSIGNES, cheminCoach, consignesEligibles, tirerConsigne, poserConsigne,
-                    coachEffacer, coachTop, majCoach, coach, resoudreCible, distanceChangement};
+                    coachEffacer, coachTop, majCoach, coach, resoudreCible, distanceChangement, positionsChemin};
 }
 </script>
 </body>
