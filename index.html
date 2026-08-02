@@ -413,14 +413,15 @@ function poidsNotes(mesures){
   });
   return p;
 }
-/* note d'ancrage : commune à tous les accords ; sinon la plus présente */
+/* Note d'ancrage : la tonique de la boucle, rien d'autre.
+   Jusqu'à la v6.2 on prenait la note commune à tous les accords, et à défaut
+   la plus présente. Le raisonnement se tenait — une note commune ne sonne
+   jamais faux — mais il ne produisait pas une tonique : sur les trois fiches
+   de G0, toutes en La, il donnait Do, Do♯ et Mi. Le grade s'appelle Ancrage,
+   le bourdon tient la tonique et le coach monte vers elle : les quatre
+   doivent nommer la même note. On délègue donc à la source unique. */
 function noteAncrage(mesures){
-  const com = notesCommunes(accordsUniques(mesures));
-  if(com.length) return com[0];
-  const p = poidsNotes(mesures);
-  let best = 0;
-  for(let i=1;i<12;i++){ if(p[i] > p[best]) best = i; }
-  return best;
+  return toniqueModale(mesures, 0);
 }
 /* Tonique modale : par défaut, la fondamentale du PREMIER accord de la boucle.
    Une boucle ne résout jamais ; c'est donc son point de départ, celui qui

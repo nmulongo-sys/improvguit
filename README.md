@@ -61,7 +61,7 @@ Réglage indépendant du nombre de temps : **aucune**, **binaire** (÷2) ou **te
 
 **Le répertoire n'est pas dans ce dépôt** et `.gitignore` l'exclut mécaniquement. L'app le charge de trois façons, dans cet ordre :
 
-1. `repertoire.json` servi à côté de `index.html` (absent de GitHub Pages ; destiné à l'hébergement Cloudflare) ;
+1. `repertoire.json` servi à côté de `index.html` — absent de GitHub Pages, présent sur le déploiement Cloudflare privé, derrière Access ;
 2. import d'un fichier local via le bouton des réglages ;
 3. saisie manuelle.
 
@@ -108,11 +108,51 @@ npm install     # jsdom, seule dépendance, de développement uniquement
 npm test
 ```
 
-`test.js` charge `index.html` dans un DOM et le pilote comme un utilisateur. Couverture : parseur et plafond d'emplacements aux quatre métriques, token de prolongation et identité par référence, tenue par-dessus la barre, ligne de temps et durées d'accord, notes communes et mobiles, ancrage pondéré, substitut tritonique, ordonnanceur audio sur `AudioContext` factice (comptage et placement des clics, tenue et hauteur du bourdon, coupure du maître à l'arrêt), rendu des onze grades, modèles, réglages, saisie invalide, persistance, bulles pédagogiques (analyse, couverture des 132 combinaisons grade × note, renvois théorie ↔ exercice non orphelins, clics réels dans le DOM), absence de dépendance externe et de contenu pédagogique dans `index.html`.
+`test.js` charge `index.html` dans un DOM et le pilote comme un utilisateur. Couverture : parseur et plafond d'emplacements aux quatre métriques, token de prolongation et identité par référence, tenue par-dessus la barre, ligne de temps et durées d'accord, notes communes et mobiles, ancrage sur la tonique, substitut tritonique, ordonnanceur audio sur `AudioContext` factice (comptage et placement des clics, tenue et hauteur du bourdon, coupure du maître à l'arrêt), rendu des onze grades, modèles, réglages, saisie invalide, persistance, bulles pédagogiques (analyse, couverture des 132 combinaisons grade × note, renvois théorie ↔ exercice non orphelins, clics réels dans le DOM), absence de dépendance externe et de contenu pédagogique dans `index.html`.
 
-**Le répertoire étant hors dépôt, les séries qui en dépendent sont ignorées s'il est absent** : un clone nu valide le moteur et l'interface (542 assertions) ; avec `repertoire.json` posé à côté, la vérification fiche par fiche s'ajoute — grille lisible, longueur annoncée, gamme connue, tonalité effectivement lue, absence du titre et de l'artiste dans `index.html` — pour 1 650 assertions sur les trente-huit fiches actuelles. Le test annonce lequel des deux régimes il a suivi.
+**Le répertoire étant hors dépôt, les séries qui en dépendent sont ignorées s'il est absent** : un clone nu valide le moteur et l'interface (548 assertions) ; avec `repertoire.json` posé à côté, la vérification fiche par fiche s'ajoute — grille lisible, longueur annoncée, gamme connue, tonalité effectivement lue, absence du titre et de l'artiste dans `index.html` — pour 1 656 assertions sur les trente-huit fiches actuelles. Le test annonce lequel des deux régimes il a suivi.
 
 ## Journal de développement
+
+### 2026-08-02 — v6.3, l'ancrage de G0 était une autre note que la tonique
+
+Mise en ligne du répertoire sur un déploiement Cloudflare privé, et première séance où
+les trente-huit fiches se chargent d'elles-mêmes. Le site est servi par un Worker en
+Direct Upload, protégé par Access sur la production comme sur les URL d'aperçu :
+`repertoire.json` renvoie 302 vers l'écran de connexion pour qui n'est pas authentifié.
+`_headers`, `_redirects` et `404.html` entrent au dépôt ; la politique de sécurité du
+contenu a été recalculée sur le fichier réel — un seul style et un seul script en ligne,
+aucun gestionnaire d'événement en attribut, aucune ressource externe, une seule requête
+réseau. GitHub Pages ignore les fichiers préfixés d'un souligné : `_headers` n'y est pas
+servi, c'est sans conséquence puisque seul Cloudflare l'applique.
+
+La première fiche jouée en conditions réelles a montré une contradiction que le harnais
+ne pouvait pas voir. Sur une boucle en La mineur, le bandeau annonçait « joue Mi », le
+manche allumait des Mi, et le coach faisait monter Fa, Sol, La vers la tonique. Deux
+notes différentes pour une même maison.
+
+L'explication tient en une fonction. `noteAncrage()` ne demandait pas la tonique : elle
+cherchait la note commune à tous les accords de la boucle, et à défaut la plus présente.
+Le raisonnement était défendable — une note commune ne sonne jamais faux, où qu'elle
+tombe — mais il ne produit pas une tonique. Sur les trois fiches de G0, toutes en La,
+il donnait Do, Do♯ et Mi. Le cas le plus net est celui du blues : un seul accord de
+septième de dominante, dont toutes les notes sont donc « communes », et le calcul
+retenait la plus basse en classe de hauteur, c'est-à-dire la tierce. Le grade s'appelle
+Ancrage et faisait tenir une tierce.
+
+`noteAncrage()` délègue désormais à `toniqueModale()`, qui était déjà la source du
+bourdon et du coach. Les deux appelants — les pastilles de G0 et le texte de la consigne
+— sont inchangés. `notesCommunes()` et `poidsNotes()` restent en place, employées
+ailleurs pour ce qu'elles savent faire.
+
+Six assertions ajoutées, dont les trois configurations de G0 qui échouaient en silence
+et le cas d'une tonalité déclarée qui doit primer sur le premier accord. Cinq titres de
+morceaux traînaient encore dans les libellés de `test.js`, fichier public : retirés. Le
+balayage automatique ne portait que sur `index.html`.
+
+Reste ouvert, vu à la même occasion : `positionsChemin()` choisit les cases du coach sur
+un critère purement géométrique et ignore la hauteur réelle. Une consigne qui dit
+« monte » peut donc s'allumer sur un geste descendant. Non corrigé ici.
 
 ### 2026-08-01 — v6.2, premier retour de terrain sur le coach
 

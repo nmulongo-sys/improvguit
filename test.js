@@ -212,11 +212,11 @@ t("Cm7 / F9 : Mi♭ commun", F.notesCommunes(acc).indexOf(3) >= 0);
 t("Cm7 / F9 : Sol commun", F.notesCommunes(acc).indexOf(7) >= 0);
 
 acc = F.accordsUniques(B("Dm | F | Gm | A7").mesures);
-eq("Chan Chan : aucune note commune aux 4", F.notesCommunes(acc).length, 0);
-eq("Chan Chan : note d'ancrage = La (9)", F.noteAncrage(B("Dm | F | Gm | A7").mesures), 9);
+eq("boucle i-III-iv-V : aucune note commune aux 4", F.notesCommunes(acc).length, 0);
+eq("ancrage sans note commune = tonique (Ré)", F.noteAncrage(B("Dm | F | Gm | A7").mesures), 2);
 
 acc = F.accordsUniques(B("Dm7 *2 | Ebm7 *2").mesures);
-eq("So What : aucune note commune", F.notesCommunes(acc).length, 0);
+eq("deux mineurs à un demi-ton : aucune note commune", F.notesCommunes(acc).length, 0);
 
 t("notes mobiles non vides entre Dm7 et Ebm7",
   F.notesMobiles(F.lireAccord("Dm7"), F.lireAccord("Ebm7")).length > 0);
@@ -225,15 +225,35 @@ t("pas de substitut pour un accord mineur", F.substitutTritonique(F.lireAccord("
 
 /* pondération par la durée : la prolongation doit peser dans le calcul.
    Sur « C _ _ G », Do occupe 3 emplacements sur 4 (poids 0,75) contre 2 sur 4
-   (poids 0,5) sur « C G ». Le Sol, commun aux deux accords, reste l'ancrage. */
+   (poids 0,5) sur « C G ». L'ancrage, lui, ne dépend plus des poids : c'est la tonique. */
 const pProl = F.poidsNotes(B("C _ _ G", 4).mesures);
 const pEgal = F.poidsNotes(B("C G", 4).mesures);
 t("Do pèse 0,75 quand il est tenu 3 temps", Math.abs(pProl[0] - 0.75) < 1e-9);
 t("Do pèse 0,50 en partage égal", Math.abs(pEgal[0] - 0.5) < 1e-9);
 t("la prolongation augmente le poids", pProl[0] > pEgal[0]);
 t("Sol commun aux deux accords : poids 1", Math.abs(pProl[7] - 1) < 1e-9);
-eq("ancrage de C _ _ G = Sol (note commune)", F.noteAncrage(B("C _ _ G", 4).mesures), 7);
-eq("ancrage de C _ _ F# = Do (aucune note commune)", F.noteAncrage(B("C _ _ F#", 4).mesures), 0);
+eq("ancrage de C _ _ G = Do (tonique, pas la note commune)", F.noteAncrage(B("C _ _ G", 4).mesures), 0);
+eq("ancrage de C _ _ F# = Do", F.noteAncrage(B("C _ _ F#", 4).mesures), 0);
+
+/* Ancrage de G0 : la tonique, jamais la note la plus commode.
+   Régression de la v6.2 : les trois configurations de G0 sont en La et
+   affichaient Do, Do♯ et Mi. Un seul accord suffisait à égarer l'ancien
+   calcul, qui prenait la note commune la plus basse en classe de hauteur. */
+eq("blues à un seul accord : ancrage = fondamentale, pas la tierce",
+   F.noteAncrage(B("A7 *2").mesures), 9);
+eq("boucle modale : ancrage = 1er accord, pas la note commune",
+   F.noteAncrage(B("Am7 *2 | Dm7 *2").mesures), 9);
+eq("boucle mineure diatonique : ancrage = 1er accord, pas la plus présente",
+   F.noteAncrage(B("Am | C | Am | C Am | Dm | Em | Am").mesures), 9);
+/* la tonalité déclarée par une fiche prévaut ici comme partout ailleurs */
+F.etat.tonalite = "La mineur";
+eq("ancrage : la tonalité déclarée prévaut sur le 1er accord",
+   F.noteAncrage(B("C | F | G | C").mesures), 9);
+eq("ancrage et tonique modale s'accordent toujours",
+   F.noteAncrage(B("C | F | G | C").mesures),
+   F.toniqueModale(B("C | F | G | C").mesures, 0));
+F.etat.tonalite = "";
+eq("tonalité effacée : retour au 1er accord", F.noteAncrage(B("C | F").mesures), 0);
 
 /* ------------------------------------------------------------------
    Tonique modale — le premier accord de la boucle, pas l'accord courant
@@ -247,7 +267,7 @@ eq("tenue *2 : tonique inchangée", F.toniqueModale(B("Cm7 *2 | F7").mesures), 0
 eq("prolongation _ : tonique = 1er emplacement", F.toniqueModale(B("Cm7 _ _ F7", 4).mesures), 0);
 /* limite assumée : sur une grille fonctionnelle, le 1er accord est un ii,
    donc la tonique modale n'est PAS la tonique réelle (Sib, pc 10) */
-eq("Autumn Leaves : tonique modale = Do, pas Sib", F.toniqueModale(B("Cm7 | F7 | Bbmaj7 | Ebmaj7").mesures), 0);
+eq("grille fonctionnelle : tonique modale = Do, pas Sib", F.toniqueModale(B("Cm7 | F7 | Bbmaj7 | Ebmaj7").mesures), 0);
 /* secours quand la boucle est vide ou illisible */
 eq("boucle vide : secours utilisé", F.toniqueModale([], 5), 5);
 eq("mesures absentes : secours utilisé", F.toniqueModale(null, 3), 3);
@@ -337,10 +357,10 @@ Object.keys(attendu).forEach(function (g) {
 /* les deux fiches ternaires */
 const ternaires = REP.morceaux.filter(function (m) { return Number(m.subdivision) === 3; });
 eq("2 fiches en subdivision ternaire", ternaires.length, 2);
-t("Sleep Walk en ternaire", ternaires.some(function (m) { return m.code === "G3-1"; }));
-t("House of the Rising Sun en ternaire", ternaires.some(function (m) { return m.code === "G5-1"; }));
+t("fiche G3-1 en ternaire", ternaires.some(function (m) { return m.code === "G3-1"; }));
+t("fiche G5-1 en ternaire", ternaires.some(function (m) { return m.code === "G5-1"; }));
 const hotrs = REP.morceaux.filter(function (m) { return m.code === "G5-1"; })[0];
-eq("House of the Rising Sun : 2 temps par mesure", Number(hotrs.battues), 2);
+eq("fiche G5-1 : 2 temps par mesure", Number(hotrs.battues), 2);
 }
 
 /* ------------------------------------------------------------------
@@ -535,7 +555,7 @@ evts = jouerUnTour("C | G", 4, 3, 60);
 eq("timeline inchangée par le ternaire", F.timeline.length, 8);
 eq("attaques inchangées par le ternaire", attaques(F.timeline), 2);
 
-/* House of the Rising Sun : 2 temps ternaires = 6 croches par mesure */
+/* fiche G5-1 : 2 temps ternaires = 6 croches par mesure */
 evts = jouerUnTour("Am | C", 2, 3, 55);
 eq("6/8 : 6 clics par mesure", evts.length / 2, 6);
 
