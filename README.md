@@ -110,9 +110,45 @@ npm test
 
 `test.js` charge `index.html` dans un DOM et le pilote comme un utilisateur. Couverture : parseur et plafond d'emplacements aux quatre métriques, token de prolongation et identité par référence, tenue par-dessus la barre, ligne de temps et durées d'accord, notes communes et mobiles, ancrage pondéré, substitut tritonique, ordonnanceur audio sur `AudioContext` factice (comptage et placement des clics, tenue et hauteur du bourdon, coupure du maître à l'arrêt), rendu des onze grades, modèles, réglages, saisie invalide, persistance, bulles pédagogiques (analyse, couverture des 132 combinaisons grade × note, renvois théorie ↔ exercice non orphelins, clics réels dans le DOM), absence de dépendance externe et de contenu pédagogique dans `index.html`.
 
-**Le répertoire étant hors dépôt, les séries qui en dépendent sont ignorées s'il est absent** : un clone nu valide le moteur et l'interface (532 assertions) ; avec `repertoire.json` posé à côté, la vérification fiche par fiche s'ajoute — grille lisible, longueur annoncée, gamme connue, tonalité effectivement lue, absence du titre et de l'artiste dans `index.html` — pour 1 640 assertions sur les trente-huit fiches actuelles. Le test annonce lequel des deux régimes il a suivi.
+**Le répertoire étant hors dépôt, les séries qui en dépendent sont ignorées s'il est absent** : un clone nu valide le moteur et l'interface (542 assertions) ; avec `repertoire.json` posé à côté, la vérification fiche par fiche s'ajoute — grille lisible, longueur annoncée, gamme connue, tonalité effectivement lue, absence du titre et de l'artiste dans `index.html` — pour 1 650 assertions sur les trente-huit fiches actuelles. Le test annonce lequel des deux régimes il a suivi.
 
 ## Journal de développement
+
+### 2026-08-01 — v6.2, premier retour de terrain sur le coach
+
+Le coach a enfin tourné sur le téléphone, guitare en main. Trois verdicts : le cycle de
+quatre tours par consigne est au bon rythme et ne bouge pas ; le bandeau est trop petit ;
+les anneaux sont trop nombreux et brouillent le manche.
+
+**Les anneaux.** Chaque étape d'un chemin allumait *toutes* ses occurrences dans la zone
+visible — six cordes, cinq à douze cases. Une enclosure de trois étapes pouvait donc
+poser une douzaine d'anneaux, et sur « Tout le manche » le pire cas montait à
+vingt-sept. L'intention était de ne rien cacher ; l'effet était de tout noyer. Or le
+coach montre un **geste**, pas une carte : la carte, c'est `marques()`, qui est déjà là
+en dessous.
+
+`positionsChemin()` choisit désormais **une position par étape et une seule** : la
+première au milieu du cadre, les suivantes au plus près de la précédente — avec un poids
+moindre sur le saut de corde que sur le déplacement le long du manche, puisque c'est
+ainsi que la main compte. Une étape dont la hauteur n'apparaît nulle part dans la zone
+est sautée plutôt que forcée ailleurs. Les anneaux sont reliés par un filet pointillé,
+pour que le trajet se lise sans le déchiffrer.
+
+Mesuré sur les quarante-deux consignes calculables : de 4,2 anneaux en moyenne à 1,3 sur
+la zone 0–5, de 8,4 à 1,3 sur le manche entier, le pire cas passant de vingt-sept à
+trois. La fonction est séparée du rendu SVG pour être vérifiable seule.
+
+**Le bandeau.** 15 px, une guitare dans les bras, à bout de bras : il fallait s'y pencher.
+Il passe à 18 px, l'interligne s'ouvre, et l'étiquette « Coach » quitte le début de
+phrase pour devenir un chapeau discret en petites capitales — toute la largeur revient à
+la consigne. Les numéros d'étape sur le manche passent de 11 à 13 px et reçoivent un
+liseré couleur bois qui les détache du fond quel que soit ce qu'il y a dessous.
+
+Rien d'autre ne change : ni le cycle, ni les chemins, ni les consignes elles-mêmes.
+**542 assertions** sans le répertoire, **1 650** avec. Les nouvelles vérifient qu'il y a
+exactement un anneau par étape plaçable, que le filet de liaison est présent dès deux
+étapes, que les positions restent dans la zone, sonnent la bonne hauteur, conservent leur
+ordre et n'imposent pas de grand écart.
 
 ### 2026-08-01 — v6.1, la tonalité déclarée est enfin lue
 
