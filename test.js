@@ -733,7 +733,7 @@ t("la sauvegarde porte le modèle actif", /modeleActif:etat\.modeleActif/.test(H
    13. Coach — consignes d'action pendant la lecture
    ------------------------------------------------------------------ */
 const C = win.eval("({CONSIGNES, cheminCoach, consignesEligibles, tirerConsigne," +
-  " poserConsigne, coachEffacer, coachTop, majCoach, coach, resoudreCible, distanceChangement})");
+  " poserConsigne, coachEffacer, coachTop, majCoach, coach, resoudreCible, distanceChangement, positionsChemin})");
 
 /* hygiène de la banque */
 const TYPES_CHEMIN = ["montee", "descente", "broderie", "enclosure", "approche",
@@ -812,6 +812,43 @@ t("couche marquée data-coach", doc.getElementById("manche").innerHTML.indexOf('
 C.poserConsigne(C.CONSIGNES[3][0]);
 t("consigne cible : complément dynamique (→ nom)", doc.getElementById("coach").textContent.indexOf("→") >= 0);
 t("consigne cible : pastille marquée pulse", doc.getElementById("manche").innerHTML.indexOf("coach-pulse") >= 0);
+
+/* Densité de la couche coach. Retour de terrain du 2026-08-01 : « trop
+   nombreux, ça brouille ». Chaque étape allumait toutes ses occurrences
+   dans la zone — jusqu'à quinze anneaux pour trois étapes. Il en faut
+   maintenant exactement un par étape effectivement plaçable. */
+function anneauxCoach() {
+  return (doc.getElementById("manche").innerHTML.match(/<circle[^>]*data-coach="1"/g) || []).length;
+}
+const zoneAvant = F.etat.zone;
+F.etat.grade = 3;
+F.etat.zone = "0-4";
+F.appliquerSaisie("Am7 | D7");
+C.poserConsigne(C.CONSIGNES[3][1]);
+const cheminPose = C.cheminCoach(C.CONSIGNES[3][1].chemin);
+const placables = C.positionsChemin(cheminPose.pas, 0, 4).length;
+eq("un anneau par étape, pas un par occurrence", anneauxCoach(), placables);
+t("le chemin tient en quelques anneaux", anneauxCoach() <= 4);
+t("les anneaux sont reliés par un filet", placables < 2 ||
+  doc.getElementById("manche").innerHTML.indexOf('<line data-coach="1"') >= 0);
+
+/* Le choix des positions : au milieu du cadre d'abord, au plus près
+   ensuite — c'est ce qui rend le geste jouable d'une seule main. */
+const droit = C.positionsChemin([{pc:0, ord:"1"}, {pc:2, ord:"2"}, {pc:4, ord:"3"}], 0, 4);
+eq("trois étapes → trois positions", droit.length, 3);
+t("chaque position appartient à la zone",
+  droit.every(function (q) { return q.f >= 0 && q.f <= 4 && q.s >= 0 && q.s <= 5; }));
+t("chaque position sonne la hauteur demandée",
+  droit.map(function (q) { return q.pc; }).join(",") === "0,2,4");
+t("pas de grand écart entre deux étapes consécutives",
+  Math.abs(droit[1].f - droit[0].f) <= 4 && Math.abs(droit[2].f - droit[1].f) <= 4);
+eq("l'ordre des étapes est conservé", droit.map(function (q) { return q.ord; }).join(""), "123");
+t("une hauteur absente de la zone est sautée, pas forcée",
+  C.positionsChemin([{pc:(2 + 12) % 12, ord:"1"}], 0, 0)
+    .every(function (q) { return q.f === 0; }));
+t("zone d'une seule case : au plus une position par étape",
+  C.positionsChemin([{pc:0, ord:"1"}, {pc:0, ord:"2"}], 5, 5).length <= 2);
+F.etat.zone = zoneAvant;
 
 /* rotation : jamais deux fois la même d'affilée */
 let repetition = false, precedente = null;
