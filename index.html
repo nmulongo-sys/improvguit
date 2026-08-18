@@ -35,7 +35,23 @@ header{display:flex;align-items:center;justify-content:space-between;gap:10px;pa
 .lien-reglages{font-family:var(--mono);font-size:12px;letter-spacing:.1em;color:var(--nacre-faible);border:1px solid var(--trait);border-radius:999px;padding:5px 12px}
 .lien-reglages[aria-expanded="true"]{color:var(--laiton);border-color:var(--laiton)}
 
-.grades{display:flex;gap:6px;overflow-x:auto;padding-bottom:12px;scrollbar-width:none}
+.voies{display:flex;gap:6px;margin-bottom:10px}
+.voie{flex:1;font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:9px 10px;border:1px solid var(--trait);border-radius:6px;color:var(--nacre-faible);transition:.16s}
+.voie[aria-pressed="true"]{background:var(--ardoise);border-color:var(--laiton);color:var(--laiton);font-weight:600}
+.atelier-barre{background:var(--ardoise);border:1px solid var(--trait);border-radius:6px;padding:11px 13px;margin-bottom:14px;display:flex;flex-direction:column;gap:11px}
+/* display:flex en classe l'emporte sur la feuille de l'agent utilisateur :
+   sans cette règle, l'attribut hidden posé par majVoie() n'éteignait pas la
+   barre, qui restait visible en voie Grades. Même garde que .coach et .bulle. */
+.atelier-barre[hidden]{display:none}
+.atelier-nav{display:flex;align-items:center;gap:10px}
+.atelier-nav button{flex:0 0 auto;width:42px;height:38px;border:1px solid var(--trait);border-radius:6px;color:var(--nacre);font-size:15px;background:transparent}
+.atelier-nav button:active{background:var(--trait)}
+.atelier-lect{flex:1;text-align:center;font-family:var(--mono);font-size:13px;color:var(--nacre-faible);line-height:1.35}
+.atelier-lect b{display:block;font-size:19px;color:var(--laiton);font-weight:600}
+.atelier-lect em{display:block;font-style:normal;font-size:11px;letter-spacing:.08em;opacity:.65}
+.atelier-choix{display:flex;gap:10px}
+.atelier-choix label{flex:1;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--nacre-faible);display:flex;flex-direction:column;gap:5px}
+
 .grades::-webkit-scrollbar{display:none}
 .grade{flex:0 0 auto;font-family:var(--mono);font-size:12px;letter-spacing:.08em;padding:7px 13px;border:1px solid var(--trait);border-radius:999px;color:var(--nacre-faible);white-space:nowrap;transition:.16s}
 .grade[aria-pressed="true"]{background:var(--laiton);border-color:var(--laiton);color:var(--encre);font-weight:600}
@@ -83,6 +99,10 @@ svg.manche{display:block;width:100%;height:auto}
 .temp.zone{box-shadow:inset 0 0 0 1.5px var(--laiton)}
 .temp.on{background:var(--nacre);transform:scaleY(1.28)}
 .temp.on.chgt{background:var(--laiton)}
+/* à l'arrêt, le temps atteint reste montré — en creux, pour ne pas se lire
+   comme un temps qui bat */
+#grille.fige .temp.on{transform:none;background:var(--ardoise-clair);box-shadow:inset 0 0 0 1.5px var(--nacre)}
+#grille.fige .temp.on.chgt{box-shadow:inset 0 0 0 1.5px var(--laiton)}
 
 .reglages{display:none;background:var(--ardoise);border:1px solid var(--trait);border-radius:4px;padding:14px;margin-bottom:14px}
 .reglages.ouvert{display:block}
@@ -132,6 +152,51 @@ input[type=text].erreur{border-color:#C4614F}
 .minuteur em{display:block;font-style:normal;font-size:9px;letter-spacing:.16em;color:var(--nacre-faible)}
 .pied{font-size:12px;color:var(--nacre-faible);text-align:center;padding:4px 0 10px}
 
+/* Bouton d'entrée/sortie du mode pupitre, dans l'en-tête du manche. 44 px :
+   c'est la seule commande qu'on cherche avec une guitare dans les bras. */
+.plein{width:44px;height:44px;flex:0 0 auto;align-self:center;border:1px solid var(--trait);border-radius:6px;color:var(--nacre-faible);display:grid;place-items:center}
+.plein svg{width:20px;height:20px}
+.plein[aria-pressed="true"]{color:var(--laiton);border-color:var(--laiton)}
+
+/* ---- MODE PUPITRE ----
+   En régime normal la page EMPILE : coach, manche (52vh), grille (24vh) et
+   environ 350 px de chrome fixe (en-tête, voies, grades, consigne, transport,
+   padding bas). Sur un écran de 800 px la somme dépasse le viewport : le
+   défilement n'est pas un défaut de réglage, il est garanti par construction.
+   Et il tombe pendant la lecture, au moment précis où les deux mains sont sur
+   l'instrument — d'où la manœuvre absurde qui consistait à mettre en pause
+   pour remonter l'écran.
+   Le mode pupitre ne rétrécit rien : il change de régime. Le viewport est
+   ALLOUÉ en colonne flex, tout ce qui se règle avant de jouer disparaît, et
+   le manche se dimensionne sur la HAUTEUR restante au lieu de la largeur.
+   Conséquence : le choix de zone ne force plus de défilement — six cases
+   tiennent large, les douze tiennent étroit, mais entières.
+   L'entrée est automatique au démarrage (réglable), la sortie uniquement
+   manuelle : s'arrêter pour réfléchir ne doit pas faire sauter la mise en
+   page sous les yeux. */
+body.jeu{height:100vh;height:100dvh;overflow:hidden;padding:0 10px calc(80px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:8px}
+body.jeu > header,
+body.jeu > .voies,
+body.jeu > .grades,
+body.jeu > .reglages,
+body.jeu > .consigne,
+body.jeu > .pied{display:none}
+/* La barre d'atelier reste, réduite à sa navigation : sans elle, changer de
+   degré en cours de jeu deviendrait impossible. Les deux sélecteurs et
+   l'interrupteur se règlent avant de jouer, ils sortent. */
+body.jeu > .atelier-barre{flex:0 0 auto;margin-bottom:0;padding:7px 10px;gap:0}
+body.jeu > .atelier-barre .atelier-choix,
+body.jeu > .atelier-barre .bascule{display:none}
+body.jeu .manche-cadre{flex:1;min-height:0;display:flex;flex-direction:column;margin-bottom:0}
+body.jeu .manche-defil{flex:1;min-height:0;max-height:none;overflow:hidden}
+body.jeu svg.manche{position:absolute;inset:0;width:100%;height:100%}
+body.jeu .legende{display:none}
+body.jeu .coach{font-size:20px}
+/* La grille garde deux rangées de mesures : une boucle courante en tient une.
+   Au-delà elle défile encore — c'est le seul défilement qui subsiste, et il
+   ne porte jamais le manche. */
+body.jeu .grille-cadre{flex:0 0 auto;max-height:104px;margin-bottom:0}
+
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}.temp.on{transform:none}}
 </style>
 </head>
@@ -142,7 +207,30 @@ input[type=text].erreur{border-color:#C4614F}
   <button class="lien-reglages" id="btnReglages" aria-expanded="false" aria-controls="reglages">Réglages</button>
 </header>
 
+<div class="voies">
+  <button class="voie" id="voieGrades" aria-pressed="true">Grades</button>
+  <button class="voie" id="voieAtelier" aria-pressed="false">Atelier · triades</button>
+</div>
+
 <nav class="grades" id="grades" aria-label="Grade"></nav>
+<nav class="grades" id="paliers" aria-label="Palier de l'atelier" hidden></nav>
+
+<section class="atelier-barre" id="atelierBarre" hidden>
+  <div class="atelier-nav">
+    <button id="triPrec" aria-label="Degré précédent">◀</button>
+    <div class="atelier-lect" id="atelierLect">—</div>
+    <button id="triSuiv" aria-label="Degré suivant">▶</button>
+  </div>
+  <div class="atelier-choix">
+    <label>Renversement
+      <select id="triRenv"></select>
+    </label>
+    <label>Cordes
+      <select id="triJeu"></select>
+    </label>
+  </div>
+  <div class="bascule"><span>Suivre la boucle</span><button class="interrupteur" id="basAtelierBoucle" aria-pressed="false" aria-label="Suivre la boucle"></button></div>
+</section>
 
 <section class="reglages" id="reglages">
   <div class="champ">
@@ -204,6 +292,7 @@ input[type=text].erreur{border-color:#C4614F}
   <div class="bascule"><span>Clic du métronome</span><button class="interrupteur" id="basClic" aria-pressed="true" aria-label="Clic du métronome"></button></div>
   <div class="bascule"><span>Cordes graves à droite</span><button class="interrupteur" id="basMiroir" aria-pressed="false" aria-label="Inverser les cordes"></button></div>
   <div class="bascule"><span>Consignes du coach</span><button class="interrupteur" id="basCoach" aria-pressed="true" aria-label="Consignes du coach"></button></div>
+  <div class="bascule"><span>Mode pupitre au départ</span><button class="interrupteur" id="basPupitre" aria-pressed="true" aria-label="Mode pupitre au départ"></button></div>
 </section>
 
 <section class="consigne">
@@ -222,6 +311,9 @@ input[type=text].erreur{border-color:#C4614F}
       <span class="accord-suivant" id="accordSuivant"></span>
       <span class="position" id="position"></span>
     </div>
+    <button class="plein" id="btnPlein" aria-pressed="false" aria-label="Mode pupitre : agrandir le manche">
+      <svg viewBox="0 0 24 24" id="iconePlein" aria-hidden="true"></svg>
+    </button>
   </div>
   <div class="coach" id="coach" hidden></div>
   <div class="manche-defil"><svg class="manche" id="manche" xmlns="http://www.w3.org/2000/svg"></svg><div class="bulle" id="bulle" hidden></div></div>
@@ -293,6 +385,139 @@ const GAMMES = [
   {id:"pentaM",   nom:"Pentatonique majeure", iv:[0,2,4,7,9]},
   {id:"blues",    nom:"Blues mineure",        iv:[0,3,5,6,7,10]}
 ];
+
+/* ------------------------------------------------------------------
+   TRIADES — atelier
+   Un accord de trois sons, sans doublure, sur trois cordes voisines.
+   Rien n'est écrit en dur : toute forme est calculée depuis l'accordage.
+   C'est ce qui permet à l'atelier de tourner dans les douze tonalités
+   sans embarquer le moindre tableau de doigtés. */
+const TRIADES = {
+  maj: {iv:[0,4,7], sym:"",  nom:"majeure"},
+  min: {iv:[0,3,7], sym:"m", nom:"mineure"},
+  dim: {iv:[0,3,6], sym:"°", nom:"diminuée"},
+  aug: {iv:[0,4,8], sym:"+", nom:"augmentée"}
+};
+/* Les quatre jeux de trois cordes adjacentes, du grave à l'aigu. */
+const JEUX = [
+  {i:[0,1,2], nom:"6-5-4"},
+  {i:[1,2,3], nom:"5-4-3"},
+  {i:[2,3,4], nom:"4-3-2"},
+  {i:[3,4,5], nom:"3-2-1"}
+];
+/* Quel son se trouve à la basse : fondamentale, tierce, quinte. */
+const RENVERSEMENTS = ["fondamentale", "1er renversement", "2e renversement"];
+/* Hauteurs réelles des cordes à vide — nécessaires ici, là où CORDES ne
+   donne que des classes de hauteur : un renversement se définit par
+   l'ordre des voix, donc par des hauteurs, pas par des classes. */
+const MIDI_CORDES = [40,45,50,55,59,64];
+
+/* Qualité de triade sous-jacente à un accord quelconque : un Am7 se
+   travaille sur la triade de La mineur. Renvoie null si l'accord n'a
+   pas de triade franche (sus, quartes). */
+function triadeDeAccord(a){
+  if(!a || !a.iv) return null;
+  const t = a.iv.indexOf(4) >= 0 ? 4 : (a.iv.indexOf(3) >= 0 ? 3 : -1);
+  if(t < 0) return null;
+  const q = a.iv.indexOf(7) >= 0 ? 7 : (a.iv.indexOf(6) >= 0 ? 6 : (a.iv.indexOf(8) >= 0 ? 8 : -1));
+  if(q < 0) return null;
+  if(t === 4 && q === 7) return "maj";
+  if(t === 3 && q === 7) return "min";
+  if(t === 3 && q === 6) return "dim";
+  if(t === 4 && q === 8) return "aug";
+  return null;
+}
+
+/* Forme d'une triade sur un jeu de cordes, la plus grave qui tienne
+   sous la main. On essaie chaque case possible pour la basse : fixer
+   d'emblée la plus grave laisse les voix supérieures hors d'atteinte
+   sur près d'une forme sur sept. C'est la position qu'on cherche, pas
+   chaque note isolément. Les hauteurs sont strictement croissantes —
+   c'est ce qui distingue un renversement d'un empilement de classes. */
+function formeTriade(pcFond, qualite, renv, jeu, casesMin, casesMax, ecartMax, racineMin){
+  const T = TRIADES[qualite];
+  if(!T || !jeu) return null;
+  casesMin = casesMin || 0;
+  casesMax = (casesMax === undefined) ? 15 : casesMax;
+  ecartMax = ecartMax || 4;
+  renv = ((renv % 3) + 3) % 3;
+  /* racineMin ne remonte QUE le départ de la fondamentale : les voix hautes
+     d'une triade tombent souvent sur des cases plus basses (10-9-8), les
+     brider avec le même plancher supprimerait la forme au lieu de la
+     décaler. C'est ce qui permet d'énumérer les octaves une à une. */
+  const f0Min = Math.max(casesMin, (racineMin === undefined ? casesMin : racineMin));
+
+  const ordre = [];
+  for(let k=0;k<3;k++) ordre.push(T.iv[(renv + k) % 3]);
+  const pcs = ordre.map(function(n){ return (pcFond + n) % 12; });
+  const cordes = jeu.i;
+
+  let cases = null, hauteurs = null;
+  for(let f0 = f0Min; f0 <= casesMax && !cases; f0++){
+    if((MIDI_CORDES[cordes[0]] + f0) % 12 !== pcs[0]) continue;
+    const c = [f0], h = [MIDI_CORDES[cordes[0]] + f0];
+    let ok = true;
+    for(let v=1; v<3 && ok; v++){
+      let trouve = -1;
+      for(let f = casesMin; f <= casesMax; f++){
+        const ht = MIDI_CORDES[cordes[v]] + f;
+        if(ht % 12 !== pcs[v]) continue;
+        if(ht <= h[v-1]) continue;
+        if(Math.abs(f - Math.min.apply(null, c)) > ecartMax) continue;
+        if(Math.abs(f - Math.max.apply(null, c)) > ecartMax) continue;
+        trouve = f; break;
+      }
+      if(trouve < 0) ok = false;
+      else { c.push(trouve); h.push(MIDI_CORDES[cordes[v]] + trouve); }
+    }
+    if(ok){ cases = c; hauteurs = h; }
+  }
+  if(!cases) return null;
+  const etendue = Math.max.apply(null, cases) - Math.min.apply(null, cases);
+  if(etendue > ecartMax) return null;
+
+  return {
+    pcFond:pcFond, qualite:qualite, renv:renv, jeu:jeu.nom,
+    positions: cordes.map(function(c, v){
+      return {s:c, f:cases[v], pc:pcs[v],
+              deg: ordre[v] === 0 ? "1" : (ordre[v] === 3 || ordre[v] === 4 ? "3" : "5")};
+    }),
+    hauteurs:hauteurs, etendue:etendue, basse:pcs[0]
+  };
+}
+
+/* Harmonisation d'une gamme en triades : le lien entre une forme et un
+   degré. On empile des tierces DANS la gamme, ce qui redonne
+   mécaniquement Maj-min-min-Maj-Maj-min-dim pour la majeure — jamais
+   écrit, toujours calculé. Une gamme de moins de sept notes ne produit
+   pas de triades : la qualité vaut alors null plutôt qu'une valeur
+   inventée. */
+function harmoniserGamme(pcTonique, iv){
+  const n = iv.length, out = [];
+  for(let d=0; d<n; d++){
+    const f = iv[d], t = iv[(d+2) % n], q = iv[(d+4) % n];
+    const i3 = ((t - f) % 12 + 12) % 12, i5 = ((q - f) % 12 + 12) % 12;
+    let qual = null;
+    if(i3 === 4 && i5 === 7) qual = "maj";
+    else if(i3 === 3 && i5 === 7) qual = "min";
+    else if(i3 === 3 && i5 === 6) qual = "dim";
+    else if(i3 === 4 && i5 === 8) qual = "aug";
+    out.push({degre:d+1, pc:(pcTonique + f) % 12, qualite:qual});
+  }
+  return out;
+}
+
+/* Chiffrage Nashville : le degré d'un accord DANS la tonalité — 6m, pas
+   Am. À ne pas confondre avec DEGRE, qui numérote les sons À L'INTÉRIEUR
+   d'un accord (1 ♭3 5). Les deux se ressemblent et ne disent pas la
+   même chose : ici le chiffre désigne la tonalité. */
+const DEG_MAJ = {0:"1",2:"2",4:"3",5:"4",7:"5",9:"6",11:"7"};
+function nashville(pcAccord, pcTonique, qualite){
+  const i = ((pcAccord - pcTonique) % 12 + 12) % 12;
+  let n = DEG_MAJ[i], alt = "";
+  if(!n){ n = DEG_MAJ[(i+1) % 12]; alt = "♭"; }
+  return alt + n + (TRIADES[qualite] ? TRIADES[qualite].sym : "");
+}
 
 function pcDepuisNom(lettre, alter){
   const base = {C:0,D:2,E:4,F:5,G:7,A:9,B:11}[lettre.toUpperCase()];
@@ -657,9 +882,243 @@ const NOMS_CORDES = ["E","A","D","G","B","E"];
 const etat = {
   grade:0, saisie:"Am7 | D7", mesures:[], battues:4, tempo:76,
   zone:"0-5", duree:300, gamme:"majeur", toniqueModele:0,
-  subdivision:1, pad:true, bourdon:false, clic:true, miroir:false, coach:true, contrainte:"", morceau:"", modeleActif:"", tonalite:""
+  subdivision:1, pad:true, bourdon:false, clic:true, miroir:false, coach:true, contrainte:"", morceau:"", modeleActif:"", tonalite:"",
+  /* jeu : régime d'affichage courant, volontairement NON persisté — on ne
+     rouvre pas l'app en pupitre. pupitre : la préférence, elle, se garde. */
+  jeu:false, pupitre:true,
+  atelier:false, palier:0, atelierBoucle:false, atelierDegre:0, atelierRenv:0, atelierJeu:2,
+  /* boucle mise de côté à l'entrée dans l'atelier, rendue au retour */
+  saisieAvant:""
 };
 let repertoire = [];
+
+/* ------------------------------------------------------------------
+   ATELIER DES TRIADES — échelle parallèle aux grades, hors de l'échelle
+   des onze grades : les triades traversent G3, G4 et G7 sans appartenir
+   à aucun. Principe d'Alonso : un seul jeu de cordes jusqu'à ce que les
+   trois renversements soient tenus, puis on traverse le manche.
+   deg = degrés proposés, renv = renversements ouverts, jeux = index dans
+   JEUX, gamme = harmonisation de référence.
+   Premier jet : la pédagogie appartient à Jean, ce tableau est à amender. */
+const PALIERS = [
+  {n:0,  court:"A0",  titre:"Les trois piliers",
+   t:"Les degrés 1, 4 et 5 en position fondamentale, sur un seul jeu de cordes. Trois formes, rien d'autre : c'est le socle de tout le reste.",
+   deg:[1,4,5], renv:[0], jeux:[2], gamme:"majeur", grille:[1,4,1,5], mes:2},
+  {n:1,  court:"A1",  titre:"Les mineurs",
+   t:"On ajoute 6m et 2m. Même jeu de cordes, même position : seule la tierce descend d'un demi-ton.",
+   deg:[1,2,4,5,6], renv:[0], jeux:[2], gamme:"majeur", grille:[1,6,4,5], mes:2},
+  {n:2,  court:"A2",  titre:"La gamme entière",
+   t:"Les sept degrés en position fondamentale. Le 7e est diminué — la seule triade de la gamme qui n'ait ni repos ni quinte juste.",
+   deg:[1,2,3,4,5,6,7], renv:[0], jeux:[2], gamme:"majeur", grille:[1,4,7,3,6,2,5,1], mes:1},
+  {n:3,  court:"A3",  titre:"Premier renversement",
+   t:"La tierce passe à la basse. Même accord, même jeu de cordes, autre visage : c'est l'ordre des voix qui change, pas les notes.",
+   deg:[1,2,3,4,5,6,7], renv:[0,1], jeux:[2], gamme:"majeur", grille:[1,4,7,3,6,2,5,1], mes:1},
+  {n:4,  court:"A4",  titre:"Trois positions",
+   t:"La quinte à la basse complète le trio. Un accord, trois formes, un seul jeu de cordes : le manche est couvert de bout en bout.",
+   deg:[1,2,3,4,5,6,7], renv:[0,1,2], jeux:[2], gamme:"majeur", grille:[1,4,7,3,6,2,5,1], mes:1},
+  {n:5,  court:"A5",  titre:"Enchaîner au plus près",
+   t:"Ne bouge plus la main : d'un degré au suivant, prends le renversement le plus proche. C'est ici que les formes cessent d'être isolées.",
+   deg:[1,2,3,4,5,6,7], renv:[0,1,2], jeux:[2], gamme:"majeur", proche:true, grille:[1,4,7,3,6,2,5,1], mes:1},
+  {n:6,  court:"A6",  titre:"Jeu voisin",
+   t:"Les mêmes sept degrés, un cran plus aigu : cordes 3-2-1. Les formes se décalent — la tierce Sol-Si oblige à une case de plus.",
+   deg:[1,2,3,4,5,6,7], renv:[0,1,2], jeux:[3], gamme:"majeur", proche:true, grille:[1,4,7,3,6,2,5,1], mes:1},
+  {n:7,  court:"A7",  titre:"Deux jeux liés",
+   t:"Passe d'un jeu à l'autre sur le même degré. Deux hauteurs pour un seul accord : choisis celle qui tombe sous la main.",
+   deg:[1,2,3,4,5,6,7], renv:[0,1,2], jeux:[2,3], gamme:"majeur", proche:true, grille:[1,4,7,3,6,2,5,1], mes:1},
+  {n:8,  court:"A8",  titre:"Tout le manche",
+   t:"Les quatre jeux de cordes. Douze formes par accord — la triade n'est plus une position, c'est une couleur qu'on trouve partout.",
+   deg:[1,2,3,4,5,6,7], renv:[0,1,2], jeux:[0,1,2,3], gamme:"majeur", proche:true, grille:[1,4,7,3,6,2,5,1], mes:1},
+  {n:9,  court:"A9",  titre:"Mode mineur",
+   t:"Même travail, gamme mineure naturelle. La suite des qualités change d'ordre : le 1 devient mineur, le 3 majeur.",
+   deg:[1,2,3,4,5,6,7], renv:[0,1,2], jeux:[2,3], gamme:"mineur", proche:true, grille:[1,4,7,3,6,2,5,1], mes:1},
+  {n:10, court:"A10", titre:"Diminuée et augmentée",
+   t:"Les deux triades symétriques. La diminuée empile des tierces mineures, l'augmentée des majeures : leurs formes se répètent sur le manche.",
+   deg:[1,2,3,4,5,6,7], renv:[0,1,2], jeux:[0,1,2,3], gamme:"majeur", sym:true, grille:[1,4,7,3,6,2,5,1], mes:1}
+];
+function palier(){ return PALIERS[etat.palier] || PALIERS[0]; }
+
+/* Tonalité de référence de l'atelier à la main : celle du sélecteur.
+   Jusqu'à la v6.4 la tonique était empruntée à la boucle alors que la gamme
+   venait du palier : sur une boucle en La mineur, A0 à A8 proposaient donc
+   La MAJEUR — trois altérations que l'oreille n'avait pas entendues. L'emprunt
+   a été coupé au profit d'un Do figé ; le palier posant désormais sa propre
+   grille, c'est le sélecteur de tonique qui fait autorité des deux côtés :
+   la grille est écrite dans cette tonalité, et la lecture à la main la suit.
+   Voir toniqueAtelier(). */
+
+/* La triade à montrer, selon le régime.
+   Sur la boucle : celle de l'accord en cours, réduite à sa triade.
+   À la main : celle du degré choisi dans l'harmonisation de la gamme.
+   Renvoie null quand rien n'est calculable — l'atelier affiche alors
+   pourquoi, plutôt qu'une forme fausse. */
+/* Toutes les formes d'une triade sur un jeu de cordes et un renversement,
+   une par octave, de la plus grave à la plus aiguë. */
+function formesTriade(pcFond, qualite, renv, jeu, casesMin, casesMax, ecartMax){
+  const out = [];
+  let depart = casesMin || 0;
+  const haut = (casesMax === undefined) ? 15 : casesMax;
+  while(depart <= haut && out.length < 8){
+    const f = formeTriade(pcFond, qualite, renv, jeu, casesMin, haut, ecartMax, depart);
+    if(!f) break;
+    out.push(f);
+    depart = f.positions[0].f + 1;
+  }
+  return out;
+}
+function centreForme(f){
+  let s = 0;
+  for(let k=0;k<f.positions.length;k++) s += f.positions[k].f;
+  return s / f.positions.length;
+}
+/* Ce que coûte un changement de jeu de cordes, en cases. Le jeu de cordes
+   n'est pas une variable qu'on lâche pour gagner deux cases : tant qu'un
+   palier n'en ouvre qu'un la question ne se pose pas, et dès qu'il en ouvre
+   plusieurs le jeu courant garde la priorité. On ne le quitte que si le
+   voyage économisé dépasse ce seuil. */
+const PENALITE_JEU = 6;
+
+/* « Enchaîner au plus près » : parmi les renversements et les jeux de cordes
+   que le palier autorise, la forme dont la main bouge le moins depuis la
+   précédente. Sans précédente, celle qui tombe au milieu de la fenêtre
+   affichée. Le drapeau proche des paliers A5 à A10 était déclaré et lu nulle
+   part : c'est ici qu'il agit. */
+function formeProche(pcFond, qualite, P, ref){
+  const z = String(etat.zone).split("-");
+  const c0 = parseInt(z[0], 10) || 0, c1 = parseInt(z[1], 10) || 15;
+  const jeuPref = P.jeux.indexOf(etat.atelierJeu) >= 0 ? etat.atelierJeu : P.jeux[0];
+
+  /* on cherche d'abord dans la fenêtre affichée : une forme qu'on ne voit
+     pas ne sert à rien. Repli sur tout le manche si elle n'en offre aucune. */
+  const passes = [[c0, c1], [0, 15]];
+  for(let p=0;p<passes.length;p++){
+    let meilleur = null, scoreMin = Infinity;
+    for(let a=0;a<P.jeux.length;a++){
+      const ij = P.jeux[a];
+      for(let b=0;b<P.renv.length;b++){
+        const liste = formesTriade(pcFond, qualite, P.renv[b], JEUX[ij], passes[p][0], passes[p][1], 4);
+        for(let k=0;k<liste.length;k++){
+          const f = liste[k], ct = centreForme(f);
+          let score = ref
+            ? Math.abs(ct - ref.centre) + (ij === ref.jeuIdx ? 0 : PENALITE_JEU)
+            : Math.abs(ct - (passes[p][0] + passes[p][1]) / 2) + (ij === jeuPref ? 0 : PENALITE_JEU);
+          /* départage stable : la case la plus basse, puis le renversement le
+             plus bas — deux formes à égalité ne doivent pas clignoter d'un
+             rendu à l'autre. */
+          score = score * 1000 + f.positions[0].f * 10 + f.renv;
+          if(score < scoreMin){ scoreMin = score; meilleur = {forme:f, jeuIdx:ij}; }
+        }
+      }
+    }
+    if(meilleur) return meilleur;
+  }
+  return null;
+}
+
+/* Mémoire de la dernière forme montrée : elle sert d'ancrage au choix
+   suivant, et elle rend triadeAtelier() idempotente — un même rendu appelle
+   la fonction trois fois (manche, barre, consigne), et sans mémoire la forme
+   se déplacerait à chaque appel. */
+let formeMemo = null;
+function oublierFormeAtelier(){ formeMemo = null; }
+
+/* Symbole minimal d'une triade, tel que lireAccord() sait le relire. */
+const SYM_TRIADE = {maj:"", min:"m", dim:"dim", aug:"aug"};
+
+/* La tonique de l'atelier n'est plus figée : c'est celle du sélecteur, la
+   même que pour les modèles. Poser la grille d'un palier et lire une forme
+   hors boucle parlent ainsi de la même tonalité. */
+function toniqueAtelier(){ return etat.toniqueModele; }
+
+/* Grille d'un palier, écrite en degrés et harmonisée à la volée : aucune
+   suite d'accords n'est tabulée, elle se transpose avec la tonique. Les
+   mesures tenues passent par « % », qui reprend la mesure précédente sans
+   réattaquer l'accord — deux mesures par accord laissent le temps du
+   voyage, qui est le geste même du palier. */
+function grillePalier(P){
+  if(!P || !P.grille || !P.grille.length) return "";
+  const g = GAMMES.filter(function(x){ return x.id === P.gamme; })[0] || GAMMES[0];
+  const accords = harmoniserGamme(toniqueAtelier(), g.iv);
+  const mes = Math.max(1, Math.min(4, P.mes || 1));
+  const out = [];
+  for(let k=0;k<P.grille.length;k++){
+    const a = accords[P.grille[k] - 1];
+    if(!a || !a.qualite) return "";
+    out.push(NOMS[a.pc] + SYM_TRIADE[a.qualite]);
+    for(let r=1;r<mes;r++) out.push("%");
+  }
+  return out.join(" | ");
+}
+/* Entrer dans un palier pose sa grille et met l'atelier en mode boucle :
+   c'est la grille qui dit quand changer de forme. La saisie d'avant est
+   mise de côté et rendue au retour en voie Grades — une visite à l'atelier
+   ne doit pas coûter la boucle en cours. */
+function poserGrillePalier(){
+  const txt = grillePalier(palier());
+  if(!txt) return false;
+  oublierFormeAtelier();
+  etat.atelierBoucle = true;
+  etat.morceau = "";
+  const sel = document.getElementById("repertoire");
+  if(sel) sel.value = "";
+  document.getElementById("saisieAccords").value = txt;
+  appliquerSaisie(txt);
+  return true;
+}
+function triadeAtelier(){
+  const P = palier();
+  const tonique = etat.atelierBoucle ? toniqueModale(etat.mesures, 0) : toniqueAtelier();
+  const g = GAMMES.filter(function(x){ return x.id === P.gamme; })[0] || GAMMES[0];
+  const accords = harmoniserGamme(tonique, g.iv);
+
+  let pc = null, qual = null, deg = null;
+  if(etat.atelierBoucle){
+    const cour = accordCourant();
+    if(!cour) return null;
+    qual = triadeDeAccord(cour);
+    if(!qual) return null;
+    pc = cour.pc;
+    const trouve = accords.filter(function(a){ return a.pc === pc; })[0];
+    deg = trouve ? trouve.degre : null;
+  }else{
+    const dispo = P.deg.filter(function(d){
+      const a = accords[d-1];
+      if(!a || !a.qualite) return false;
+      if(!P.sym && (a.qualite === "dim" || a.qualite === "aug")) return P.deg.length === 7 && P.n >= 2;
+      return true;
+    });
+    if(!dispo.length) return null;
+    deg = dispo[((etat.atelierDegre % dispo.length) + dispo.length) % dispo.length];
+    const a = accords[deg-1];
+    if(!a || !a.qualite) return null;
+    pc = a.pc; qual = a.qualite;
+  }
+
+  const jeu = JEUX[P.jeux.indexOf(etat.atelierJeu) >= 0 ? etat.atelierJeu : P.jeux[0]];
+  const renv = P.renv.indexOf(etat.atelierRenv) >= 0 ? etat.atelierRenv : P.renv[0];
+  let f;
+  if(P.proche){
+    /* la clé englobe tout ce qui change la forme sans changer d'accord :
+       même accord, mêmes réglages -> même forme, quel que soit le nombre
+       d'appels dans le rendu. */
+    const cle = pc + ":" + qual + ":" + P.n + ":" + etat.atelierJeu + ":" + etat.zone;
+    if(formeMemo && formeMemo.cle === cle){
+      f = formeMemo.forme;
+    }else{
+      const c = formeProche(pc, qual, P, formeMemo);
+      if(!c) return null;
+      f = c.forme;
+      formeMemo = {cle:cle, forme:f, centre:centreForme(f), jeuIdx:c.jeuIdx};
+    }
+  }else{
+    f = formeTriade(pc, qual, renv, jeu, 0, 15, 4);
+  }
+  if(!f) return null;
+  f.degre = deg;
+  f.chiffre = nashville(pc, tonique, qual);
+  f.tonique = tonique;
+  return f;
+}
+
 
 const CONTRAINTES_G1 = [
   "Maximum 4 notes par mesure.",
@@ -719,7 +1178,9 @@ function sauver(){
       grade:etat.grade, saisie:etat.saisie, battues:etat.battues, tempo:etat.tempo,
       zone:etat.zone, duree:etat.duree, gamme:etat.gamme, toniqueModele:etat.toniqueModele,
       subdivision:etat.subdivision,
-      pad:etat.pad, bourdon:etat.bourdon, clic:etat.clic, miroir:etat.miroir, coach:etat.coach, morceau:etat.morceau, modeleActif:etat.modeleActif, tonalite:etat.tonalite
+      pad:etat.pad, bourdon:etat.bourdon, clic:etat.clic, miroir:etat.miroir, coach:etat.coach, pupitre:etat.pupitre, morceau:etat.morceau, modeleActif:etat.modeleActif, tonalite:etat.tonalite,
+      atelier:etat.atelier, palier:etat.palier, atelierBoucle:etat.atelierBoucle, atelierRenv:etat.atelierRenv, atelierJeu:etat.atelierJeu,
+      saisieAvant:etat.saisieAvant
     }));
   }catch(e){}
 }
@@ -914,6 +1375,8 @@ async function demarrer(){
   maitre.gain.cancelScheduledValues(ctx.currentTime);
   maitre.gain.setValueAtTime(0.9, ctx.currentTime);
   enMarche = true;
+  /* Seul endroit, avec la fin de séance, où l'affichage gelé est relâché :
+     on repart du haut de boucle, la première image sera peinte au temps 0. */
   pointeur = 0; tempsAffiche = -1; fileAttente = [];
   prochainTemps = ctx.currentTime + 0.08;
   if(etat.duree > 0 && restant <= 0) restant = etat.duree;
@@ -921,6 +1384,9 @@ async function demarrer(){
   boucleMinuteur = setInterval(ordonnanceur, 25);
   requestAnimationFrame(boucleVisuelle);
   majBoutonJouer();
+  /* La sortie n'est jamais automatique : arreter() ne touche pas au régime.
+     Mettre en pause pour réfléchir ne doit pas faire sauter la page. */
+  if(etat.pupitre && !etat.jeu){ etat.jeu = true; majJeu(); }
   try{ if(navigator.wakeLock) verrou = await navigator.wakeLock.request("screen"); }catch(e){}
 }
 function arreter(fini){
@@ -934,10 +1400,22 @@ function arreter(fini){
     maitre.gain.setValueAtTime(maitre.gain.value, t);
     maitre.gain.linearRampToValueAtTime(0.0001, t + 0.02);
   }
-  fileAttente = []; tempsAffiche = -1;
-  if(fini) restant = 0;
+  fileAttente = [];
+  /* Arrêté n'est pas remis à zéro. En pause manuelle on gèle l'affichage :
+     tempsAffiche reste sur le temps atteint, donc le manche garde l'accord
+     en cours et le coach ses anneaux — mettre en pause pour regarder le
+     manche ne doit pas faire sauter le manche. Le retour à -1 n'a lieu qu'en
+     fin de séance, ou au démarrage suivant qui repart du haut de boucle. */
+  if(fini){
+    tempsAffiche = -1;
+    restant = 0;
+    coachEffacer();
+  }else{
+    /* enMarche est déjà faux : le battement d'armement s'éteint de lui-même,
+       sans passer par coachEffacer() qui, lui, retirerait les anneaux. */
+    coachArmer();
+  }
   try{ if(verrou){ verrou.release(); verrou = null; } }catch(e){}
-  coachEffacer();
   peindreTemps(); peindreMinuteur(); majBoutonJouer();
 }
 function basculer(){ enMarche ? arreter(false) : demarrer(); }
@@ -963,6 +1441,20 @@ function marques(){
   const m = {};
   const mode = grade().mode;
   const cour = accordCourant(), suiv = accordSuivant();
+
+  /* En atelier, le fond n'est plus celui du grade : la gamme de
+     référence en petites pastilles, et rien d'autre. La forme de
+     triade se dessine par-dessus, en positions précises. Le contraste
+     entre les deux EST la leçon : le degré vient de la gamme, la forme
+     vient de l'accord. */
+  if(etat.atelier){
+    const P = palier();
+    const g = GAMMES.filter(function(x){ return x.id === P.gamme; })[0] || GAMMES[0];
+    const racine = toniqueModale(etat.mesures, 0);
+    g.iv.forEach(function(n){ m[(racine + n) % 12] = {c:"var(--nacre-faible)", t:"", petit:true}; });
+    return m;
+  }
+
   if(!cour) return m;
 
   if(mode === "une"){
@@ -1129,6 +1621,9 @@ function cheminCoach(spec){
   }
   if(T === "pilier"){
     const t0 = resoudreCible("tonique");
+    /* pas de hauteur imposée : tonique et quinte sont deux repères, pas une
+       figure orientée. La quinte sous la tonique est un pilier aussi juste,
+       et la contraindre au-dessus la ferait sortir des fenêtres étroites. */
     return {pas:[{pc:t0, ord:"1·3"}, {pc:(t0 + 7) % 12, ord:"2"}], pulse:[], dyn:""};
   }
   const cible = resoudreCible(spec.vers);
@@ -1137,24 +1632,41 @@ function cheminCoach(spec){
     return {pas:[{pc:cible, ord:""}], pulse:[cible], dyn:" → " + NOMS[cible]};
   }
   if(T === "approche"){
-    return {pas:[{pc:(cible + 11) % 12, ord:"1"}, {pc:cible, ord:"2"}], pulse:[], dyn:""};
+    return {pas:[{pc:(cible + 11) % 12, ord:"1", h:0}, {pc:cible, ord:"2", h:1}], pulse:[], dyn:""};
   }
   const e = echelleModale(), L = e.length, idx = e.indexOf(cible);
   if(T === "broderie"){
     /* voisin diatonique du dessus ; chromatique si la cible est hors gamme */
     const sup = idx >= 0 ? e[(idx + 1) % L] : (cible + 1) % 12;
-    return {pas:[{pc:cible, ord:"1·3"}, {pc:sup, ord:"2"}], pulse:[], dyn:""};
+    return {pas:[{pc:cible, ord:"1·3", h:0},
+                 {pc:sup, ord:"2", h:((sup - cible) % 12 + 12) % 12}], pulse:[], dyn:""};
   }
   if(T === "enclosure"){
     /* dessus diatonique, dessous demi-ton : l'encadrement bebop classique */
     const sup = idx >= 0 ? e[(idx + 1) % L] : (cible + 2) % 12;
-    return {pas:[{pc:sup, ord:"1"}, {pc:(cible + 11) % 12, ord:"2"}, {pc:cible, ord:"3"}], pulse:[], dyn:""};
+    /* hauteurs comptées depuis le dessus, qui ouvre la figure : le dessous est
+       un demi-ton sous la cible, donc plus bas que le départ. Sans ça,
+       l'encadrement pouvait se dessiner entièrement au-dessus de sa cible. */
+    const ecart = ((sup - cible) % 12 + 12) % 12;
+    return {pas:[{pc:sup, ord:"1", h:0},
+                 {pc:(cible + 11) % 12, ord:"2", h:-ecart - 1},
+                 {pc:cible, ord:"3", h:-ecart}], pulse:[], dyn:""};
   }
   if(T === "montee" || T === "descente"){
     if(idx < 0) return null;
     const n = spec.n || 3, sens = (T === "montee") ? -1 : 1, pas = [];
+    /* le sens de lecture de l'échelle est inverse du sens de la figure :
+       une montée part n degrés SOUS la cible et remonte jusqu'à elle */
+    const dir = (T === "montee") ? 1 : -1;
     for(let k = n - 1; k >= 0; k--){
       pas.push({pc:e[((idx + sens * k) % L + L) % L], ord:String(n - k)});
+    }
+    let h = 0;
+    pas[0].h = 0;
+    for(let i = 1; i < pas.length; i++){
+      const d = (((pas[i].pc - pas[i-1].pc) * dir) % 12 + 12) % 12;
+      h += dir * (d === 0 ? 12 : d);
+      pas[i].h = h;
     }
     return {pas:pas, pulse:[], dyn:""};
   }
@@ -1239,20 +1751,68 @@ function coachArmer(){
    plus cher à la main que le saut de corde, d'où le poids 0,6 sur les
    cordes. Une étape dont le pc n'apparaît nulle part dans la zone est
    sautée plutôt que forcée. Séparée du rendu pour être vérifiable seule. */
-function positionsChemin(pas, c0, c1){
-  const sortie = [];
-  let ref = null;
-  for(let i=0;i<pas.length;i++){
+/* Déroule le chemin depuis une position de départ imposée.
+   Quand un pas porte une hauteur relative (champ h), la position retenue doit
+   se trouver exactement à cet écart de la première : sans quoi une « montée »
+   pouvait descendre pour de bon. Les classes de hauteur sont modulo 12 — Do
+   suivi de Ré peut monter de deux demi-tons ou descendre de dix, et l'ancien
+   choix, qui ne regardait que la distance sur le manche, prenait indifféremment
+   l'un ou l'autre. Un pas dont aucune position ne tient dans la fenêtre est
+   sauté, comme avant : mieux vaut un chemin incomplet qu'un chemin faux. */
+function deroulerChemin(pas, c0, c1, depart){
+  const sortie = [depart];
+  const places = [{i:0, h:pas[0].h, y:CORDES[depart.s] + depart.f}];
+  let ref = depart;
+  for(let i=1;i<pas.length;i++){
+    const h = pas[i].h;
     let best = null, bestD = Infinity;
     for(let s=0;s<6;s++) for(let f=c0;f<=c1;f++){
       if((CORDES[s] + f) % 12 !== pas[i].pc) continue;
-      const d = ref ? Math.abs(f - ref.f) + Math.abs(s - ref.s) * 0.6
-                    : Math.abs(f - (c0 + c1) / 2) + Math.abs(s - 2.5) * 0.6;
+      const y = CORDES[s] + f;
+      /* Ce qui compte est l'ORDRE des hauteurs, pas l'intervalle exact : la
+         note 3 d'une montée doit être au-dessus des notes 1 et 2, le dessous
+         d'une enclosure sous sa cible. Imposer l'écart au demi-ton près rendait
+         un chemin sur dix inplaçable dans une fenêtre de six cases ; comparer
+         les signes suffit, et l'écart voulu sert ensuite à départager. */
+      let ordreTenu = true, ecart = 0;
+      for(let k=0;k<places.length && ordreTenu;k++){
+        const p = places[k];
+        if(h === undefined || h === null || p.h === undefined || p.h === null) continue;
+        ordreTenu = Math.sign(y - p.y) === Math.sign(h - p.h);
+        if(k === places.length - 1) ecart = Math.abs((y - p.y) - (h - p.h));
+      }
+      if(!ordreTenu) continue;
+      const d = Math.abs(f - ref.f) + Math.abs(s - ref.s) * 0.6 + ecart * 0.5;
       if(d < bestD){ bestD = d; best = {s:s, f:f, pc:pas[i].pc, ord:pas[i].ord}; }
     }
-    if(best){ sortie.push(best); ref = best; }
+    if(best){
+      sortie.push(best);
+      places.push({i:i, h:h, y:CORDES[best.s] + best.f});
+      ref = best;
+    }
   }
   return sortie;
+}
+function positionsChemin(pas, c0, c1){
+  if(!pas || !pas.length) return [];
+  /* Le premier pas commande tout le reste : une fois les hauteurs contraintes,
+     partir trop haut ou trop bas fait sortir la suite de la fenêtre. On essaie
+     donc chaque départ possible et on garde celui qui place le plus d'étapes,
+     à compacité égale le plus centré. */
+  let meilleur = [], scoreMeilleur = -Infinity;
+  for(let s=0;s<6;s++) for(let f=c0;f<=c1;f++){
+    if((CORDES[s] + f) % 12 !== pas[0].pc) continue;
+    const depart = {s:s, f:f, pc:pas[0].pc, ord:pas[0].ord};
+    const essai = deroulerChemin(pas, c0, c1, depart);
+    let etale = 0;
+    for(let k=1;k<essai.length;k++){
+      etale += Math.abs(essai[k].f - essai[k-1].f) + Math.abs(essai[k].s - essai[k-1].s) * 0.6;
+    }
+    const centre = Math.abs(f - (c0 + c1) / 2) + Math.abs(s - 2.5) * 0.6;
+    const score = essai.length * 100 - etale * 2 - centre;
+    if(score > scoreMeilleur){ scoreMeilleur = score; meilleur = essai; }
+  }
+  return meilleur;
 }
 function rendreManche(){
   const svg = document.getElementById("manche");
@@ -1334,10 +1894,44 @@ function rendreManche(){
       });
     }
   }
+  /* couche atelier : la forme de triade, en positions précises.
+     Trois pastilles pleines et trois seulement — une forme n'est pas un
+     ensemble de classes de hauteur mais trois cases nommées. La basse
+     porte un liseré : c'est elle qui dit le renversement. Une forme hors
+     de la fenêtre visible n'est pas déplacée de force ; l'atelier
+     signale plutôt de changer de zone. */
+  if(etat.atelier){
+    const tri = triadeAtelier();
+    if(tri){
+      const dedans = tri.positions.filter(function(o){ return o.f >= c0 && o.f <= c1; });
+      const pts = dedans.map(function(o){
+        return {o:o, cx:x(o.s), cy:(o.f === 0) ? HAUT - 12 : y(o.f - c0) - PAS_Y / 2};
+      });
+      for(let i=1;i<pts.length;i++){
+        p.push('<line data-triade="1" x1="'+pts[i-1].cx+'" y1="'+pts[i-1].cy+'" x2="'+pts[i].cx+'" y2="'+pts[i].cy+
+               '" stroke="var(--nacre)" stroke-width="1.5" stroke-dasharray="3 4" opacity=".4"/>');
+      }
+      pts.forEach(function(q, i){
+        const basse = (i === 0);
+        const col = q.o.deg === "1" ? "var(--laiton)" : "var(--indigo)";
+        if(basse) p.push('<circle data-triade="1" cx="'+q.cx+'" cy="'+q.cy+'" r="22" fill="none" stroke="var(--nacre)" stroke-width="2" opacity=".9"/>');
+        p.push('<circle data-triade="1" cx="'+q.cx+'" cy="'+q.cy+'" r="17" fill="'+col+'"/>');
+        p.push('<text data-triade="1" x="'+q.cx+'" y="'+(q.cy+4.5)+'" text-anchor="middle" font-family="var(--mono)" font-size="13" font-weight="600" fill="var(--encre)">'+q.o.deg+'</text>');
+      });
+    }
+  }
   svg.innerHTML = p.join("");
   majCoach();
 
   const cour = accordCourant(), suiv = accordSuivant();
+  if(etat.atelier){
+    const tri = triadeAtelier();
+    /* le chiffrage Nashville prend la place du symbole : c'est le degré
+       qui se travaille ici, pas la lettre. */
+    document.getElementById("accordActuel").textContent = tri ? tri.chiffre : "—";
+    document.getElementById("accordSuivant").textContent =
+      tri ? RENVERSEMENTS[tri.renv] + " · cordes " + tri.jeu : "hors de portée";
+  }else{
   document.getElementById("accordActuel").textContent = cour ? cour.sym : "—";
   let droite = (suiv && suiv !== cour) ? "puis " + suiv.sym : "";
   if(etat.grade === 8){
@@ -1345,6 +1939,7 @@ function rendreManche(){
     if(sub) droite = "substitut " + sub;
   }
   document.getElementById("accordSuivant").textContent = droite;
+  }
   const b = timeline[tempsCourant()];
   document.getElementById("position").textContent =
     etat.mesures.length ? "mes. " + ((b ? b.mesure : 0) + 1) + " / " + etat.mesures.length : "";
@@ -1352,6 +1947,14 @@ function rendreManche(){
 }
 function rendreLegende(){
   const mode = grade().mode;
+  if(etat.atelier){
+    document.getElementById("legende").innerHTML =
+      '<span><i style="background:var(--laiton)"></i>fondamentale</span>'+
+      '<span><i style="background:var(--indigo)"></i>tierce · quinte</span>'+
+      '<span><i style="box-shadow:0 0 0 2px var(--nacre);background:transparent"></i>note la plus grave</span>'+
+      '<span><i style="background:var(--nacre-faible);width:6px;height:6px"></i>gamme</span>';
+    return;
+  }
   const base = '<span><i style="background:var(--laiton)"></i>fondamentale</span><span><i style="background:var(--indigo)"></i>3ce · 5te</span><span><i style="background:var(--vert)"></i>7e</span>';
   const halo = '<span><i style="box-shadow:0 0 0 2px var(--vert);background:transparent"></i>note mobile</span>';
   let h;
@@ -1394,6 +1997,9 @@ function rendreGrille(){
 }
 let derniereMesure = -1;
 function peindreTemps(){
+  /* gelé : arrêté, mais sur un temps atteint — l'affichage tient la pose */
+  const g = document.getElementById("grille");
+  if(g) g.classList.toggle("fige", !enMarche && tempsAffiche >= 0);
   const cases = document.querySelectorAll(".temp");
   for(let k=0;k<cases.length;k++){
     const el = cases[k];
@@ -1416,6 +2022,35 @@ function peindreTemps(){
    ============================================================ */
 function rendreConsigne(){
   const G = grade();
+
+  /* En atelier, la consigne devient celle du palier : l'échelle des
+     grades est mise en veille, pas supprimée. */
+  if(etat.atelier){
+    const P = palier();
+    const tri = triadeAtelier();
+    document.getElementById("consigneTitre").textContent = "Atelier " + P.court + " — " + P.titre;
+    let ht = "<p>" + P.t + "</p>";
+    if(P.grille && P.grille.length){
+      ht += "<p>Grille du palier : degrés <kbd>" + P.grille.join(" · ") + "</kbd>, " +
+            ((P.mes || 1) > 1 ? (P.mes + " mesures") : "une mesure") + " par accord, en " +
+            FR[toniqueAtelier()] + ". Elle se pose à l'entrée du palier ; " +
+            "coupe « suivre la boucle » pour reprendre la main degré par degré.</p>";
+    }
+    if(tri){
+      const T = TRIADES[tri.qualite];
+      ht += "<p>En cours : <kbd>" + tri.chiffre + "</kbd> — triade " + T.nom +
+            " de " + FR[tri.pcFond] + ", " + RENVERSEMENTS[tri.renv].toLowerCase() +
+            ", cordes " + tri.jeu + ". La note la plus grave est " + FR[tri.basse] + ".</p>";
+    }else if(etat.atelierBoucle){
+      ht += "<p>L'accord en cours n'a pas de triade franche — un accord suspendu ou par quartes n'en contient pas. Attends le suivant.</p>";
+    }else{
+      ht += "<p>Aucune forme calculable dans cette configuration.</p>";
+    }
+    document.getElementById("consigneCorps").innerHTML = ht;
+    document.getElementById("blocContrainte").hidden = true;
+    return;
+  }
+
   document.getElementById("consigneTitre").textContent = "Grade " + G.n + " — " + G.titre;
   const uniques = accordsUniques(etat.mesures);
   const cour = uniques[0] || null, suiv = uniques[1] || null;
@@ -1573,6 +2208,70 @@ function peindreMinuteur(){
   el.classList.toggle("fini", restant > 0 && restant <= 30);
 }
 function peindreTempo(){ document.getElementById("tempoVal").innerHTML = etat.tempo + "<em>BPM</em>"; }
+function rendrePaliers(){
+  document.getElementById("paliers").innerHTML = PALIERS.map(function(p){
+    return '<button class="grade" data-p="'+p.n+'" aria-pressed="'+(p.n===etat.palier)+'">'+p.court+' · '+p.titre+'</button>';
+  }).join("");
+}
+/* Les choix offerts dépendent du palier : on ne propose jamais un
+   renversement ou un jeu de cordes que le palier n'a pas encore ouvert.
+   C'est la progressivité, tenue par les données et non par du texte. */
+function rendreChoixAtelier(){
+  const P = palier();
+  if(P.renv.indexOf(etat.atelierRenv) < 0) etat.atelierRenv = P.renv[0];
+  if(P.jeux.indexOf(etat.atelierJeu) < 0) etat.atelierJeu = P.jeux[0];
+  /* quand le palier enchaîne au plus près, le renversement n'est plus un
+     choix : c'est le résultat du calcul. On le dit, plutôt que de laisser un
+     menu qui ne commande rien. */
+  document.getElementById("triRenv").innerHTML = P.proche
+    ? '<option>au plus près</option>'
+    : P.renv.map(function(r){
+        return '<option value="'+r+'"'+(r===etat.atelierRenv?" selected":"")+'>'+RENVERSEMENTS[r]+'</option>';
+      }).join("");
+  document.getElementById("triJeu").innerHTML = P.jeux.map(function(j){
+    return '<option value="'+j+'"'+(j===etat.atelierJeu?" selected":"")+'>'+JEUX[j].nom+'</option>';
+  }).join("");
+  document.getElementById("triRenv").disabled = P.proche || P.renv.length < 2;
+  document.getElementById("triJeu").disabled = P.jeux.length < 2;
+  const tri = triadeAtelier();
+  /* Le chiffrage est relatif : le même « 6m » vaut La mineur en tonalité de Do
+     et Do mineur en tonalité de Mi♭. Depuis que l'atelier à la main a sa propre
+     tonalité, les deux régimes n'ont plus la même référence — il faut donc la
+     nommer, sans quoi le chiffrage ne veut plus rien dire à lui seul. */
+  document.getElementById("atelierLect").innerHTML = tri
+    ? "<b>"+tri.chiffre+"</b>"+FR[tri.pcFond]+" "+TRIADES[tri.qualite].nom
+      +"<em>en "+FR[tri.tonique]+"</em>"
+    : "<b>—</b>aucune forme";
+  document.getElementById("triPrec").disabled = etat.atelierBoucle;
+  document.getElementById("triSuiv").disabled = etat.atelierBoucle;
+}
+function majVoie(){
+  const a = etat.atelier;
+  document.getElementById("voieGrades").setAttribute("aria-pressed", String(!a));
+  document.getElementById("voieAtelier").setAttribute("aria-pressed", String(a));
+  document.getElementById("grades").hidden = a;
+  document.getElementById("paliers").hidden = !a;
+  document.getElementById("atelierBarre").hidden = !a;
+  if(a) { rendrePaliers(); rendreChoixAtelier(); }
+}
+
+/* Deux icônes, pas une seule teintée : avec l'instrument dans les bras la
+   couleur se lit mal de biais, la direction des flèches se lit toujours. */
+const ICONE_PLEIN = '<path d="M3 9V3h6M21 15v6h-6M3 3l6.5 6.5M21 21l-6.5-6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>';
+const ICONE_REDUIT = '<path d="M9 3v6H3M15 21v-6h6M3 9l6-6M21 15l-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>';
+function majJeu(){
+  const on = !!etat.jeu;
+  document.body.classList.toggle("jeu", on);
+  const b = document.getElementById("btnPlein");
+  if(!b) return;
+  b.setAttribute("aria-pressed", String(on));
+  b.setAttribute("aria-label", on ? "Quitter le mode pupitre" : "Mode pupitre : agrandir le manche");
+  document.getElementById("iconePlein").innerHTML = on ? ICONE_REDUIT : ICONE_PLEIN;
+  cacherBulle();
+}
+function rafraichirAtelier(){
+  rendreChoixAtelier(); rendreManche(); rendreConsigne(); sauver();
+}
 function rendreGrades(){
   document.getElementById("grades").innerHTML = GRADES.map(function(g){
     return '<button class="grade" data-g="'+g.n+'" aria-pressed="'+(g.n===etat.grade)+'">'+g.court+' · '+g.titre+'</button>';
@@ -1618,7 +2317,10 @@ function appliquerSaisie(txt){
 }
 function reconstruire(){
   construireTimeline();
-  if(enMarche){ pointeur = 0; fileAttente = []; tempsAffiche = -1; }
+  /* La grille a changé : l'image gelée d'une pause précédente ne désigne plus
+     rien, et son index pourrait sortir de la nouvelle timeline. On relâche,
+     que la boucle tourne ou non. */
+  pointeur = 0; fileAttente = []; tempsAffiche = -1;
   rendreGrille(); rendreManche(); rendreConsigne(); sauver();
 }
 function majChampGamme(){
@@ -1638,7 +2340,7 @@ function remplirSelects(){
   document.getElementById("zone").value = etat.zone;
   document.getElementById("duree").value = String(etat.duree);
   document.getElementById("saisieAccords").value = etat.saisie;
-  [["basPad","pad"],["basBourdon","bourdon"],["basClic","clic"],["basMiroir","miroir"],["basCoach","coach"]].forEach(function(p){
+  [["basPad","pad"],["basBourdon","bourdon"],["basClic","clic"],["basMiroir","miroir"],["basCoach","coach"],["basPupitre","pupitre"]].forEach(function(p){
     const el = document.getElementById(p[0]);
     if(el) el.setAttribute("aria-pressed", String(!!etat[p[1]]));
   });
@@ -1650,6 +2352,50 @@ function brancher(){
   document.getElementById("btnReglages").addEventListener("click", function(){
     const ouvert = document.getElementById("reglages").classList.toggle("ouvert");
     this.setAttribute("aria-expanded", String(ouvert));
+  });
+  document.getElementById("voieGrades").addEventListener("click", function(){
+    cacherBulle(); etat.atelier = false;
+    /* on rend la boucle d'avant l'atelier, si elle avait été mise de côté */
+    if(etat.saisieAvant){
+      const memo = etat.saisieAvant;
+      etat.saisieAvant = "";
+      document.getElementById("saisieAccords").value = memo;
+      appliquerSaisie(memo);
+    }
+    majVoie(); rendreManche(); rendreConsigne(); sauver();
+  });
+  document.getElementById("voieAtelier").addEventListener("click", function(){
+    cacherBulle(); etat.atelier = true;
+    if(!etat.saisieAvant) etat.saisieAvant = etat.saisie;
+    poserGrillePalier();
+    majVoie(); rendreManche(); rendreConsigne(); sauver();
+  });
+  document.getElementById("paliers").addEventListener("click", function(e){
+    const b = e.target.closest(".grade"); if(!b) return;
+    etat.palier = parseInt(b.dataset.p, 10);
+    etat.atelierDegre = 0;
+    oublierFormeAtelier();
+    poserGrillePalier();
+    rendrePaliers(); rafraichirAtelier();
+  });
+  document.getElementById("triPrec").addEventListener("click", function(){
+    etat.atelierDegre--; rafraichirAtelier();
+  });
+  document.getElementById("triSuiv").addEventListener("click", function(){
+    etat.atelierDegre++; rafraichirAtelier();
+  });
+  document.getElementById("triRenv").addEventListener("change", function(){
+    etat.atelierRenv = parseInt(this.value, 10); rafraichirAtelier();
+  });
+  document.getElementById("triJeu").addEventListener("change", function(){
+    /* changer de jeu de cordes à la main, c'est reposer la priorité :
+       la chaîne au plus près repart de ce jeu-là. */
+    etat.atelierJeu = parseInt(this.value, 10); oublierFormeAtelier(); rafraichirAtelier();
+  });
+  document.getElementById("basAtelierBoucle").addEventListener("click", function(){
+    etat.atelierBoucle = !etat.atelierBoucle;
+    this.setAttribute("aria-pressed", String(etat.atelierBoucle));
+    rafraichirAtelier();
   });
   document.getElementById("grades").addEventListener("click", function(e){
     cacherBulle();
@@ -1682,7 +2428,13 @@ function brancher(){
     document.getElementById("repertoire").value = "";
     appliquerSaisie(this.value);
   });
-  document.getElementById("tonique").addEventListener("change", function(){ etat.toniqueModele = parseInt(this.value,10); sauver(); });
+  document.getElementById("tonique").addEventListener("change", function(){
+    etat.toniqueModele = parseInt(this.value,10);
+    /* en atelier, la tonique est celle de travail : la grille du palier
+       se réécrit dans la nouvelle tonalité, et le manche suit */
+    if(etat.atelier && poserGrillePalier()) rafraichirAtelier();
+    sauver();
+  });
   document.getElementById("battues").addEventListener("change", function(){
     /* le plafond d'emplacements dépend des battues : on relit avant d'accepter */
     const avant = etat.battues, neuf = parseInt(this.value, 10);
@@ -1703,7 +2455,13 @@ function brancher(){
     etat.subdivision = parseInt(this.value, 10) || 1;
     sauver();
   });
-  document.getElementById("zone").addEventListener("change", function(){ etat.zone = this.value; rendreManche(); sauver(); });
+  document.getElementById("zone").addEventListener("change", function(){
+    /* la fenêtre affichée entre dans le choix de la forme : on repart de zéro
+       plutôt que d'ancrer la suite sur une forme devenue invisible */
+    etat.zone = this.value; oublierFormeAtelier();
+    rendreManche(); rendreConsigne(); if(etat.atelier) rendreChoixAtelier();
+    sauver();
+  });
   document.getElementById("duree").addEventListener("change", function(){ etat.duree = parseInt(this.value,10); restant = 0; peindreMinuteur(); sauver(); });
   document.getElementById("gamme").addEventListener("change", function(){ etat.gamme = this.value; rendreManche(); rendreConsigne(); sauver(); });
   document.getElementById("btnTirer").addEventListener("click", tirerContrainte);
@@ -1735,7 +2493,10 @@ function brancher(){
     if(e.target.closest("#bulle") || e.target.closest("[data-pc]")) return;
     cacherBulle();
   });
-  [["basPad","pad"],["basBourdon","bourdon"],["basClic","clic"],["basMiroir","miroir"],["basCoach","coach"]].forEach(function(p){
+  document.getElementById("btnPlein").addEventListener("click", function(){
+    etat.jeu = !etat.jeu; majJeu();
+  });
+  [["basPad","pad"],["basBourdon","bourdon"],["basClic","clic"],["basMiroir","miroir"],["basCoach","coach"],["basPupitre","pupitre"]].forEach(function(p){
     document.getElementById(p[0]).addEventListener("click", function(){
       etat[p[1]] = !etat[p[1]];
       this.setAttribute("aria-pressed", String(etat[p[1]]));
@@ -1755,6 +2516,8 @@ function init(){
   etat.mesures = r.erreur ? lireBoucle("Am7 | D7", etat.battues).mesures : r.mesures;
   remplirSelects();
   rendreGrades(); rendreModeles(); majChampGamme();
+  document.getElementById("basAtelierBoucle").setAttribute("aria-pressed", String(etat.atelierBoucle));
+  majVoie(); majJeu();
   construireTimeline();
   rendreGrille(); rendreManche(); rendreConsigne();
   peindreTempo(); peindreMinuteur(); majBoutonJouer();
@@ -1769,7 +2532,9 @@ if(typeof module !== "undefined" && module.exports){
                     analyserNote, cleCorpus, contenuBulle, faitsNote, CORPUS, MODELES,
                     montrerBulle, cacherBulle, appliquerSaisie, appliquerModele, rendreManche, rendreConsigne,
                     CONSIGNES, cheminCoach, consignesEligibles, tirerConsigne, poserConsigne,
-                    coachEffacer, coachTop, majCoach, coach, resoudreCible, distanceChangement, positionsChemin};
+                    coachEffacer, coachTop, majCoach, coach, resoudreCible, distanceChangement, positionsChemin,
+                    TRIADES, JEUX, RENVERSEMENTS, PALIERS, formeTriade, harmoniserGamme, nashville,
+                    triadeDeAccord, triadeAtelier, palier, etat, marques};
 }
 </script>
 </body>
