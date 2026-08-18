@@ -3,7 +3,7 @@
 Entraîneur d'improvisation à la guitare, organisé en grades : à chaque grade, une seule variable est libre. Fichier HTML unique, hors ligne, pensé pour cinq minutes par jour sur téléphone.
 
 **En ligne** : https://nmulongo-sys.github.io/improvguit/
-**Statut** : révision du 2026-07-31 (v6) • fichier unique `index.html`, aucune dépendance externe.
+**Statut** : révision du 2026-08-18 • fichier unique `index.html`, aucune dépendance externe.
 
 ## Principe
 
@@ -30,6 +30,25 @@ Ouvrir la page. Aucune installation, fonctionne hors ligne une fois chargée.
 1. **Réglages** → charger un répertoire, choisir un modèle harmonique, ou saisir la boucle à la main.
 2. Choisir le grade. Consigne, manche et grille s'adaptent.
 3. Lancer. La barre du bas donne le tempo et le décompte de séance.
+
+L'application a **deux voies**, commutées en haut de page.
+
+- **Grades** — la voie principale décrite ci-dessus : une boucle, un grade, une consigne.
+- **Atelier** — onze paliers de travail des triades (A0 → A10), avec leur propre grille.
+  Entrer dans un palier **pose sa grille et met l'atelier en suivi de boucle** ; la
+  boucle qui était en cours est mise de côté et rendue au retour en voie Grades.
+  Couper « suivre la boucle » redonne la navigation degré par degré, hors tempo :
+  c'est le mode d'étude.
+
+**Mode pupitre** — le bouton d'agrandissement bascule l'affichage en pupitre : viewport
+réparti en `100dvh`, manche dimensionné sur la hauteur restante, plus de zones de
+défilement imbriquées. La sortie est **uniquement manuelle** — mettre en pause ne
+referme pas le pupitre. La préférence d'entrée automatique au démarrage est persistée
+(`etat.pupitre`) ; le régime courant (`etat.jeu`) ne l'est pas.
+
+**À la pause**, l'affichage **gèle** : le manche garde l'accord atteint, le coach garde
+ses anneaux, et le temps atteint reste marqué en creux dans la grille. Seule la fin de
+séance remet tout à zéro.
 
 ### Notation de la boucle
 
@@ -84,7 +103,7 @@ Fichier unique, sections numérotées dans le `<script>` :
 
 1. **Théorie** — `NOMS`/`FR`/`DEGRE` (12 classes de hauteur), table `QUALITES` (alias → intervalles), `ALIAS` trié par longueur décroissante pour apparier d'abord le suffixe le plus long. `lireAccord()` renvoie `{sym, pc, iv, notes}` ou `null`, avec un repli qui retire les parenthèses. `lireBoucle(texte, battues)` renvoie `{mesures}` ou `{erreur}` : jamais d'exception, toute saisie illisible remonte un message. Le second argument sert au plafond d'emplacements.
 2. **Modèle de données** — une boucle est un **tableau de mesures**, chaque mesure un tableau d'emplacements. Les accords tenus — sur plusieurs mesures (`*4`, `%`) comme à l'intérieur d'une mesure (`_`) — partagent **la même référence d'objet** : c'est cette identité qui distingue un accord tenu d'un accord rejoué, pour l'affichage comme pour la nappe audio. Trois fonctions en dépendent (`construireTimeline`, `dureeAccord`, `poidsNotes`) et aucune n'a besoin de connaître la notation.
-3. **Persistance** — `localStorage`, clé `improvguit.v2`, schéma `{grade, saisie, battues, tempo, zone, duree, gamme, toniqueModele, subdivision, pad, bourdon, clic, miroir, morceau, modeleActif}`. Lecture et écriture sous `try/catch`. Une clé absente d'une sauvegarde ancienne garde sa valeur par défaut.
+3. **Persistance** — `localStorage`, clé `improvguit.v2`, schéma `{grade, saisie, battues, tempo, zone, duree, gamme, toniqueModele, subdivision, pad, bourdon, clic, miroir, coach, pupitre, morceau, modeleActif, tonalite, atelier, palier, atelierBoucle, atelierRenv, atelierJeu, saisieAvant}`. Lecture et écriture sous `try/catch`. Une clé absente d'une sauvegarde ancienne garde sa valeur par défaut. `etat.jeu` (régime pupitre courant) est délibérément **hors schéma** : on ne rouvre pas l'application en pupitre.
 4. **Ligne de temps** — `construireTimeline()` produit un temps par battue avec `{mesure, temps, fort, accord, debutAccord, zoneAtterrissage}`. Dans une mesure à plusieurs emplacements, l'accord d'un temps est `floor(temps × nEmplacements / battues)` ; quand il y a autant d'emplacements que de temps, la correspondance est l'identité — c'est ce qui rend `_` exact. `debutAccord` compare les références. `zoneAtterrissage` marque le dernier temps avant un changement : c'est la cible visuelle des grades ≥ 3.
 5. **Audio** — `AudioContext` partagé, ordonnanceur à anticipation (`setInterval` 25 ms, fenêtre 120 ms). Clic carré à quatre hauteurs (1760 Hz changement d'accord, 1320 Hz temps fort, 880 Hz autres, 660 Hz subdivision) ; les subdivisions sont générées dans l'ordonnanceur, la ligne de temps les ignore. Nappe en ondes triangulaires dont la durée vient de `dureeAccord()`, plafonnée à 12 s. **Bourdon** facultatif : fondamentale et octave sur la tonique modale, une octave sous la nappe, programmé une seule fois par tour de boucle et non par accord ; son extinction déborde sur l'attaque du tour suivant, qui la recouvre. `arreter()` ferme le gain maître sur 20 ms : sans cela, clics et nappes déjà programmés continuent de sonner après l'arrêt, jusqu'à deux tiers de temps avec les subdivisions. La synchro visuelle dépile une file `{i, t}` en `requestAnimationFrame` contre `ctx.currentTime` — jamais `setTimeout`.
 6. **Calcul d'affichage** — `marques()` retourne `classe de hauteur → {couleur, étiquette, halo, petit}` selon le mode du grade. Point unique où la pédagogie touche le rendu ; ajouter un grade = ajouter un mode ici et une branche dans `rendreConsigne()`. La tonique dont dépendent la gamme dessinée, le texte de la consigne et le bourdon vient d'une source unique, `toniqueModale()` : la fondamentale du premier accord de la boucle.
@@ -93,7 +112,15 @@ Fichier unique, sections numérotées dans le `<script>` :
 9. **Grille** — un bloc par mesure, une cellule par temps, défilement automatique sur la mesure courante (utile sur les formes de 32 mesures). Les symboles consécutifs identiques sont fusionnés : `C _ _ G` s'affiche « C G ».
 10. **Consigne** — texte généré depuis la boucle réelle, jamais codé en dur. G1 et G2 tirent une contrainte au sort, rejouable par `↺`.
 11. **Répertoire** — `poserRepertoire()` construit le sélecteur groupé par grade ; `chargerRepertoireDistant()` tente `repertoire.json` et échoue en silence.
-12. **Interface** — délégation d'événements, aucun cadre externe.
+12. **Coach** — `CONSIGNES` porte **42 instructions réparties sur les onze grades**. Une consigne est `{t, chemin?, si?, siAccords?, rel?}` ; `chemin` décrit un geste que `cheminCoach()` calcule **à l'exécution** sur la boucle réelle, jamais stocké. Dix types : `montee`, `descente`, `pilier`, `cible`, `cellule`, `commune`, `double`, `approche`, `broderie`, `enclosure`. `cheminCoach()` renvoie `null` si le geste est incalculable sur la boucle en cours, et la consigne est alors écartée du tirage. Rotation toutes les `TOURS_CONSIGNE = 4` boucles, jamais deux fois de suite la même. **Le coach ne vérifie rien** : ni micro, ni écoute. Il propose.
+13. **Atelier des triades** — onze paliers `A0 → A10`, `PALIERS[n] = {n, court, titre, t, deg, renv, jeux, gamme, grille, mes, proche?, sym?}`. Une seule variable s'ouvre par palier, comme pour les grades : degrés disponibles (A0 les trois piliers, A1 les mineurs, A2 la gamme entière), puis renversements (A3, A4), puis enchaînement au plus près (A5), puis jeux de cordes (A6 à A8), puis mode mineur (A9) et triades symétriques (A10).
+    - **Formes calculées, jamais tabulées.** `formeTriade(pc, qualité, renv, jeu, casesMin, casesMax, écartMax, racineMin)` construit une forme voix par voix sous contrainte de hauteur croissante et d'écart maximal. Le huitième paramètre `racineMin` ne remonte **que** le départ de la fondamentale : les voix hautes d'une triade tombent souvent sur des cases plus basses (Do en 10-9-8), les brider avec le même plancher supprimerait la forme au lieu de la décaler. C'est ce qui permet à `formesTriade()` d'énumérer les octaves une à une.
+    - **Jeux de cordes** : `JEUX = [6-5-4, 5-4-3, 4-3-2, 3-2-1]`, désignés par leur indice dans les paliers. `RENVERSEMENTS = [fondamentale, 1er, 2e]`. `MIDI_CORDES = [40,45,50,55,59,64]` — un renversement se définit par l'ordre des voix, donc par des hauteurs réelles et non par des classes de hauteur.
+    - **Grille de palier** : chaque palier porte sa suite d'accords **en degrés** (`grille`) et son nombre de mesures par accord (`mes`). `grillePalier()` l'harmonise à la volée par `harmoniserGamme()` depuis la tonique de travail — **aucune suite d'accords n'est écrite en dur**, tout se transpose. Les mesures tenues passent par `%`. A0 vaut `1 | 4 | 1 | 5` sur deux mesures par accord ; A1 `1 | 6 | 4 | 5` ; A2 et suivants le cycle de quartes dans la gamme, `1 | 4 | 7 | 3 | 6 | 2 | 5 | 1`.
+    - **Tonique de travail** : `toniqueAtelier()` renvoie `etat.toniqueModele`, celle du sélecteur. C'est la même des deux côtés — grille posée et lecture à la main. Changer de tonique en atelier réécrit la grille du palier.
+    - **Enchaîner au plus près** : le drapeau `proche` (A5 et au-delà) fait passer le choix de forme par `formeProche()`, qui retient, parmi les renversements et jeux de cordes que le palier autorise, celle dont le centre est le plus proche de la précédente. Le **jeu de cordes garde la priorité** : `PENALITE_JEU = 6` cases dans le score, on ne le quitte que si le voyage économisé dépasse ce seuil. Le sélecteur « Cordes » pose donc la priorité, le moteur y obéit. La **fenêtre affichée** entre dans le choix — une forme qu'on ne voit pas ne sert à rien —, avec repli sur tout le manche si elle n'offre rien. Départage stable par case la plus basse puis renversement le plus bas : deux formes à égalité ne doivent pas clignoter d'un rendu à l'autre.
+    - **`formeMemo`** : `triadeAtelier()` est appelée **trois fois par rendu** (manche, barre, consigne). Sans mémoire, la forme choisie au plus près se déplacerait à chaque appel. La mémoire est indexée par accord et par réglage, et `oublierFormeAtelier()` la vide partout où la chaîne doit repartir : changement de palier, de grille, de tonique, de jeu de cordes, de fenêtre.
+14. **Interface** — délégation d'événements, aucun cadre externe.
 
 Conventions de couleur, appliquées partout : **laiton** = fondamentale ou note d'ancrage, **indigo** = autres notes d'accord, **vert** = septième, halo des notes mobiles et approches chromatiques, **gris** = notes de passage. Manche en bois sombre et frettes laiton, chrome en ardoise froide : l'instrument se distingue de l'interface.
 
@@ -110,9 +137,84 @@ npm test
 
 `test.js` charge `index.html` dans un DOM et le pilote comme un utilisateur. Couverture : parseur et plafond d'emplacements aux quatre métriques, token de prolongation et identité par référence, tenue par-dessus la barre, ligne de temps et durées d'accord, notes communes et mobiles, ancrage sur la tonique, substitut tritonique, ordonnanceur audio sur `AudioContext` factice (comptage et placement des clics, tenue et hauteur du bourdon, coupure du maître à l'arrêt), rendu des onze grades, modèles, réglages, saisie invalide, persistance, bulles pédagogiques (analyse, couverture des 132 combinaisons grade × note, renvois théorie ↔ exercice non orphelins, clics réels dans le DOM), absence de dépendance externe et de contenu pédagogique dans `index.html`.
 
-**Le répertoire étant hors dépôt, les séries qui en dépendent sont ignorées s'il est absent** : un clone nu valide le moteur et l'interface (548 assertions) ; avec `repertoire.json` posé à côté, la vérification fiche par fiche s'ajoute — grille lisible, longueur annoncée, gamme connue, tonalité effectivement lue, absence du titre et de l'artiste dans `index.html` — pour 1 656 assertions sur les trente-huit fiches actuelles. Le test annonce lequel des deux régimes il a suivi.
+**Le répertoire étant hors dépôt, les séries qui en dépendent sont ignorées s'il est absent** : un clone nu valide le moteur et l'interface (748 assertions) ; avec `repertoire.json` posé à côté, la vérification fiche par fiche s'ajoute — grille lisible, longueur annoncée, gamme connue, tonalité effectivement lue, absence du titre et de l'artiste dans `index.html` — pour 1 856 assertions sur les trente-huit fiches actuelles. Le test annonce lequel des deux régimes il a suivi.
+
+**Contre-épreuve obligatoire.** Une série de tests nouvelle doit être lancée contre l'`index.html` **d'avant** le correctif et y échouer. Une assertion qui passe des deux côtés ne teste rien.
 
 ## Journal de développement
+
+> **Trou assumé entre le 2026-08-02 et le 2026-08-18.** L'atelier des triades et le
+> mode pupitre sont entrés dans le code pendant cet intervalle sans entrée de journal.
+> Ils sont décrits dans « Architecture & conventions », qui se lit dans le source ;
+> les décisions qui les ont produits, elles, n'ont pas été consignées et ne sont pas
+> reconstituées ici. Le journal est en ajout seul : mieux vaut un trou visible qu'une
+> continuité inventée.
+
+### 2026-08-18 — geler l'affichage à la pause, grilles de palier, enchaîner au plus près
+
+Trois chantiers, tous nés du même constat : l'atelier montrait des formes sans jamais
+dire quoi en faire.
+
+**Mettre en pause faisait sauter le manche.** `arreter()` remettait `tempsAffiche` à −1
+puis appelait `coachEffacer()`, qui relance `rendreManche()` ; `tempsCourant()` retombait
+sur 0 et `marques()` recalculait les pastilles du **premier accord de la boucle**. Pause
+sur le second accord, le manche affichait le premier — et les anneaux du coach
+disparaissaient par le même chemin. Or on met justement en pause pour regarder le manche.
+`arreter(fini)` distingue désormais *arrêté* de *remis à zéro* : en pause manuelle le
+temps atteint est conservé et la consigne du coach survit ; seule la fin de séance remet
+à −1 et vide le coach. Le battement d'armement s'éteint par `coachArmer()`, qui suffit
+puisque `enMarche` est déjà faux. Un temps gelé se lit **en creux** dans la grille, pour
+ne pas se confondre avec un temps qui bat.
+
+Bug latent trouvé au passage : `reconstruire()` ne relâchait le temps affiché que si la
+boucle tournait. Avec le gel, une pause à l'index 7 suivie d'une grille plus courte
+laissait `tempsCourant()` pointer hors de la ligne de temps. Le garde est devenu
+inconditionnel — une grille neuve périme l'image gelée.
+
+**Chaque palier porte sa grille.** Un palier décrivait des formes ; rien ne disait quand
+en changer, et le mode « suivre la boucle » n'avait aucun sens puisque la grille ne venait
+de nulle part. Les paliers portent maintenant leur suite d'accords **en degrés**,
+harmonisée à la volée : aucune suite n'est tabulée, tout se transpose avec la tonique, et
+une assertion vérifie qu'aucune grille n'est écrite en lettres. Entrer dans un palier
+pose sa grille et force le suivi de boucle ; le hors-boucle devient le mode d'étude. La
+boucle d'avant est mise de côté (`etat.saisieAvant`) et rendue au retour en voie Grades —
+une visite à l'atelier ne doit pas coûter la boucle de travail.
+
+`ATELIER_TONIQUE`, le Do figé, disparaît : le palier posant sa propre grille, c'est le
+sélecteur de tonique qui fait autorité des deux côtés.
+
+A0 est passé de `1 | 4 | 5 | 1` à `1 | 4 | 1 | 5` : la première version faisait tenir la
+tonique quatre mesures d'affilée à la couture de la boucle. Le repère revient au milieu,
+la couture enchaîne 5 → 1, et la tonique ne tient jamais plus de deux mesures.
+
+**`proche:true` était déclaré sur A5 à A10 et lu nulle part.** `formeTriade()` balayait de
+la case 0 vers le haut et retenait la première forme trouvée, c'est-à-dire la position la
+plus grave du renversement figé. À chaque changement d'accord la forme sautait le manche,
+et le déplacement minimal — toute la leçon — restait invisible. `formeProche()` choisit
+désormais la forme la plus proche de la précédente, parmi ce que le palier autorise.
+Mesure sur la grille d'A5 en Do, cases 0–12 : **10 cases de voyage sur huit accords**,
+contre 40 avec la première forme venue. Verrouillé par tests, moins de deux cases par
+changement avec, plus de quatre sans.
+
+Le jeu de cordes n'est pas une variable qu'on lâche pour gagner deux cases :
+`PENALITE_JEU = 6` fait qu'on ne le quitte que si le voyage économisé dépasse six cases.
+Aux paliers qui ouvrent plusieurs jeux, la chaîne reste donc sur celui choisi à la main.
+Le menu « Renversement » passe en « au plus près » et devient inerte là où le calcul
+décide : il ne commandait plus rien, autant le dire.
+
+Effet de bord traité : `triadeAtelier()` est appelée trois fois par rendu. Sans mémoire,
+la forme se déplaçait à chaque appel. `formeMemo` la rend idempotente ; un test le
+vérifie.
+
+**748 assertions** sans le répertoire, 1 856 avec, zéro échec. Trois sections ajoutées à
+`test.js` : gel à la pause, grille de palier, enchaînement au plus près. Contre-épreuve
+faite dans les trois cas.
+
+Reste ouvert, vu à la même occasion et **non corrigé** : `coachTop()` ne regarde pas
+`etat.atelier`, donc le coach des grades continue de tourner par-dessus l'atelier — deux
+pédagogies superposées sans rapport l'une avec l'autre, sur le même manche. Et le titre
+d'A7, « Passe d'un jeu à l'autre sur le même degré », contredit désormais le moteur, qui
+n'en change jamais tout seul.
 
 ### 2026-08-02 — v6.3, l'ancrage de G0 était une autre note que la tonique
 
