@@ -67,6 +67,15 @@ const F = win.eval("({lireAccord, lireBoucle, accordsUniques, notesCommunes, not
   " analyserNote, cleCorpus, contenuBulle, faitsNote, CORPUS, MODELES," +
   " montrerBulle, cacherBulle, appliquerSaisie, appliquerModele, rendreManche, rendreConsigne," +
   " dureeAccord, etat, GRADES, GAMMES, NOMS, MAX_MESURES," +
+  " TRIADES, JEUX, RENVERSEMENTS, PALIERS, formeTriade, harmoniserGamme, nashville," +
+  " triadeDeAccord, triadeAtelier, palier, marques, sauver, majJeu, majVoie," +
+  " arreter, reconstruire, peindreTemps, tempsCourant, accordCourant,"  +
+  " grillePalier, poserGrillePalier, toniqueAtelier, SYM_TRIADE, TRIADES,"  +
+  " formesTriade, centreForme, formeProche, oublierFormeAtelier, PENALITE_JEU,"  +
+  " rendreChoixAtelier, rafraichirAtelier," +
+  " coach, poserConsigne, coachEffacer, coachArmer, CONSIGNES," +
+  " get tempsAffiche(){return tempsAffiche}, set tempsAffiche(v){tempsAffiche=v}," +
+  " get enMarche(){return enMarche}, set enMarche(v){enMarche=v}," +
   " get timeline(){return timeline}})");
 
 /* ------------------------------------------------------------------
@@ -868,6 +877,105 @@ t("une hauteur absente de la zone est sautée, pas forcée",
     .every(function (q) { return q.f === 0; }));
 t("zone d'une seule case : au plus une position par étape",
   C.positionsChemin([{pc:0, ord:"1"}, {pc:0, ord:"2"}], 5, 5).length <= 2);
+
+/* Hauteurs réelles. Point ouvert depuis la v6.2 : les pas d'un chemin sont
+   des classes de hauteur, modulo 12. Le choix de position ne regardait que la
+   distance sur le manche — une « montée » pouvait donc descendre pour de bon
+   (Do suivi de Ré peut monter de deux demi-tons ou descendre de dix). Sur les
+   cinq zones de l'app, quinze figures sur cent soixante partaient à l'envers,
+   dont des enclosures qui plaçaient leur « dessus » sous la cible. */
+const CORDES_T = [4, 9, 2, 7, 11, 4];
+function hauteurs(p) { return p.map(function (q) { return CORDES_T[q.s] + q.f; }); }
+function croissante(H) { return H.every(function (h, i) { return i === 0 || h > H[i - 1]; }); }
+function decroissante(H) { return H.every(function (h, i) { return i === 0 || h < H[i - 1]; }); }
+
+(function () {
+  const memo = { g: F.etat.grade, gam: F.etat.gamme };
+  let montees = 0, descentes = 0, enclosures = 0, approches = 0, broderies = 0;
+  let fausses = 0, exemples = [];
+  [["Am7 | D7", "majeur"], ["Cm7 | F7", "mineur"], ["Em7 | Am7", "dorien"]].forEach(function (cas) {
+    F.appliquerSaisie(cas[0]);
+    F.etat.gamme = cas[1];
+    [[0, 5], [3, 8], [5, 10], [7, 12], [0, 12]].forEach(function (z) {
+      for (let g = 0; g <= 10; g++) {
+        F.etat.grade = g;
+        C.consignesEligibles(g).forEach(function (c) {
+          if (!c.chemin) return;
+          const ch = C.cheminCoach(c.chemin);
+          if (!ch || ch.pas.length < 2) return;
+          const p = C.positionsChemin(ch.pas, z[0], z[1]);
+          if (p.length < 2) return;
+          const H = hauteurs(p);
+          let bon = true;
+          if (c.chemin.type === "montee")   { montees++;   bon = croissante(H); }
+          if (c.chemin.type === "descente") { descentes++; bon = decroissante(H); }
+          if (c.chemin.type === "approche") { approches++; bon = H[1] > H[0]; }
+          if (c.chemin.type === "broderie") { broderies++; bon = H[1] > H[0]; }
+          if (c.chemin.type === "enclosure" && H.length === 3) {
+            enclosures++; bon = H[0] > H[2] && H[1] < H[2];
+          }
+          if (!bon) { fausses++; if (exemples.length < 3) exemples.push(c.chemin.type + " [" + H.join(",") + "]"); }
+        });
+      }
+    });
+  });
+  t("les montées sont réellement testées", montees > 0);
+  t("les descentes sont réellement testées", descentes > 0);
+  t("les enclosures sont réellement testées", enclosures > 0);
+  eq("aucune figure orientée ne part à l'envers" +
+     (exemples.length ? " — " + exemples.join(" · ") : ""), fausses, 0);
+  F.etat.grade = memo.g; F.etat.gamme = memo.gam;
+})();
+
+/* Le pilier fait exception : tonique et quinte sont deux repères, pas une
+   figure orientée. La quinte sous la tonique est un pilier aussi juste, et
+   l'imposer au-dessus la sortait des fenêtres étroites. */
+(function () {
+  const memo = { g: F.etat.grade };
+  F.etat.grade = 0;
+  F.appliquerSaisie("Am7 | D7");
+  const pil = C.cheminCoach({ type: "pilier" });
+  t("le pilier ne contraint aucune hauteur",
+    pil.pas.every(function (p) { return p.h === undefined || p.h === null; }));
+  eq("le pilier reste plaçable dans une fenêtre étroite",
+    C.positionsChemin(pil.pas, 0, 5).length, 2);
+  F.etat.grade = memo.g;
+})();
+
+/* Un chemin sans hauteur imposée garde le comportement d'origine : trois
+   étapes libres restent trois positions, quel que soit leur ordre de hauteur. */
+(function () {
+  const libre = C.positionsChemin([{pc:0, ord:"1"}, {pc:2, ord:"2"}, {pc:4, ord:"3"}], 0, 5);
+  eq("sans hauteur imposée : toutes les étapes sont placées", libre.length, 3);
+})();
+
+/* Compacité : le chemin doit rester sous une seule main. La recherche du
+   meilleur départ resserre les figures au lieu de les étaler. */
+(function () {
+  const memo = { g: F.etat.grade, gam: F.etat.gamme };
+  F.appliquerSaisie("Am7 | D7");
+  F.etat.gamme = "majeur";
+  let large = 0, n = 0;
+  [[0, 5], [3, 8], [0, 12]].forEach(function (z) {
+    for (let g = 0; g <= 10; g++) {
+      F.etat.grade = g;
+      C.consignesEligibles(g).forEach(function (c) {
+        if (!c.chemin) return;
+        const ch = C.cheminCoach(c.chemin);
+        if (!ch || ch.pas.length < 2) return;
+        const p = C.positionsChemin(ch.pas, z[0], z[1]);
+        if (p.length < 2) return;
+        const cases = p.map(function (q) { return q.f; });
+        n++;
+        if (Math.max.apply(null, cases) - Math.min.apply(null, cases) > 4) large++;
+      });
+    }
+  });
+  t("des chemins ont bien été mesurés", n > 20);
+  eq("aucun chemin n'excède quatre cases d'écart", large, 0);
+  F.etat.grade = memo.g; F.etat.gamme = memo.gam;
+})();
+
 F.etat.zone = zoneAvant;
 
 /* rotation : jamais deux fois la même d'affilée */
@@ -1000,6 +1108,546 @@ t("persistance : tonalité sauvegardée", /tonalite:etat\.tonalite/.test(HTML));
 F.etat.tonalite = "";
 F.etat.grade = 0;
 F.appliquerSaisie("Am7 | D7");
+
+/* ------------------------------------------------------------------
+   Atelier des triades — formes, harmonisation, chiffrage Nashville
+   ------------------------------------------------------------------ */
+
+/* Exhaustif : 12 fondamentales x 4 qualites x 3 renversements x 4 jeux.
+   Une forme doit exister pour chacune, porter exactement les trois sons
+   de la triade sans doublure, monter strictement, et tenir sous la main. */
+(function () {
+  let manquantes = 0, sonsFaux = 0, voixFausses = 0, basseFausse = 0, tropLarge = 0;
+  for (let pc = 0; pc < 12; pc++)
+    for (const q of ["maj", "min", "dim", "aug"])
+      for (let r = 0; r < 3; r++)
+        for (const j of F.JEUX) {
+          const f = F.formeTriade(pc, q, r, j, 0, 15, 4);
+          if (!f) { manquantes++; continue; }
+          const iv = F.TRIADES[q].iv;
+          const att = iv.map(function (x) { return (pc + x) % 12; }).sort(function (a, b) { return a - b; });
+          const obt = f.positions.map(function (o) { return o.pc; }).sort(function (a, b) { return a - b; });
+          if (att.join() !== obt.join()) sonsFaux++;
+          for (let k = 1; k < 3; k++) if (f.hauteurs[k] <= f.hauteurs[k - 1]) voixFausses++;
+          if (f.basse !== (pc + iv[r % 3]) % 12) basseFausse++;
+          if (f.etendue > 4) tropLarge++;
+        }
+  eq("576 formes de triade : aucune introuvable", manquantes, 0);
+  eq("576 formes : aucun son faux ni doublure", sonsFaux, 0);
+  eq("576 formes : les voix montent toujours", voixFausses, 0);
+  eq("576 formes : la basse est celle du renversement", basseFausse, 0);
+  eq("576 formes : aucune n'excede 4 cases", tropLarge, 0);
+})();
+
+/* Doigtes classiques : garde-fous contre une regression silencieuse du
+   choix de position. Do majeur sur les cordes 3-2-1 est Sol:5 Si:5 mi:3. */
+(function () {
+  const f = F.formeTriade(0, "maj", 0, F.JEUX[3], 0, 15, 4);
+  eq("Do maj 3-2-1 : cordes attendues", f.positions.map(function (o) { return o.s; }).join(), "3,4,5");
+  eq("Do maj 3-2-1 : cases attendues", f.positions.map(function (o) { return o.f; }).join(), "5,5,3");
+  eq("Do maj 3-2-1 : basse = fondamentale", f.basse, 0);
+  const g = F.formeTriade(0, "maj", 2, F.JEUX[3], 0, 15, 4);
+  eq("Do/Sol 3-2-1 : position ouverte", g.positions.map(function (o) { return o.f; }).join(), "0,1,0");
+  eq("Do/Sol : la quinte est a la basse", g.basse, 7);
+  const h = F.formeTriade(0, "maj", 1, F.JEUX[3], 0, 15, 4);
+  eq("Do/Mi : la tierce est a la basse", h.basse, 4);
+})();
+
+/* Harmonisation : la suite des qualites n'est jamais ecrite, elle tombe
+   de l'empilement de tierces dans la gamme. */
+(function () {
+  const maj = F.harmoniserGamme(0, [0, 2, 4, 5, 7, 9, 11]);
+  eq("gamme majeure harmonisee : M-m-m-M-M-m-dim",
+     maj.map(function (d) { return d.qualite; }).join(),
+     "maj,min,min,maj,maj,min,dim");
+  eq("degre 1 de Do majeur = Do", maj[0].pc, 0);
+  eq("degre 5 de Do majeur = Sol", maj[4].pc, 7);
+  const min = F.harmoniserGamme(9, [0, 2, 3, 5, 7, 8, 10]);
+  eq("gamme mineure harmonisee : m-dim-M-m-m-M-M",
+     min.map(function (d) { return d.qualite; }).join(),
+     "min,dim,maj,min,min,maj,maj");
+  eq("degre 1 de La mineur = La", min[0].pc, 9);
+  /* cinq notes ne font pas des tierces empilees : refus propre */
+  const penta = F.harmoniserGamme(0, [0, 2, 4, 7, 9]);
+  t("pentatonique : aucune qualite inventee",
+    penta.every(function (d) { return d.qualite === null; }));
+})();
+
+/* Chiffrage Nashville : le degre DANS la tonalite, a ne pas confondre
+   avec les numeros de sons a l'interieur d'un accord. */
+eq("La mineur en tonalite de Do = 6m", F.nashville(9, 0, "min"), "6m");
+eq("Do majeur en tonalite de Do = 1", F.nashville(0, 0, "maj"), "1");
+eq("Si diminue en tonalite de Do = 7°", F.nashville(11, 0, "dim"), "7°");
+eq("Si bemol en tonalite de Do = ♭7", F.nashville(10, 0, "maj"), "♭7");
+eq("Fa en tonalite de Do = 4", F.nashville(5, 0, "maj"), "4");
+eq("le chiffrage suit la tonalite, pas la lettre", F.nashville(9, 9, "min"), "1m");
+
+/* Reduction d'un accord a sa triade : un Am7 se travaille sur La mineur. */
+eq("Am7 se reduit a une triade mineure", F.triadeDeAccord(F.lireAccord("Am7")), "min");
+eq("Cmaj7 se reduit a une triade majeure", F.triadeDeAccord(F.lireAccord("Cmaj7")), "maj");
+eq("G7 se reduit a une triade majeure", F.triadeDeAccord(F.lireAccord("G7")), "maj");
+eq("Bm7b5 se reduit a une triade diminuee", F.triadeDeAccord(F.lireAccord("Bm7b5")), "dim");
+t("un accord suspendu n'a pas de triade franche", F.triadeDeAccord(F.lireAccord("Csus4")) === null);
+
+/* Les paliers : progressivite tenue par les donnees. */
+(function () {
+  eq("onze paliers", F.PALIERS.length, 11);
+  t("A0 n'ouvre qu'un renversement", F.PALIERS[0].renv.length === 1);
+  t("A0 n'ouvre qu'un jeu de cordes", F.PALIERS[0].jeux.length === 1);
+  t("A4 ouvre les trois renversements", F.PALIERS[4].renv.length === 3);
+  t("A8 ouvre les quatre jeux de cordes", F.PALIERS[8].jeux.length === 4);
+  t("les renversements ne se ferment jamais",
+    F.PALIERS.every(function (p, i) { return i === 0 || p.renv.length >= F.PALIERS[i - 1].renv.length || p.n >= 9; }));
+  t("chaque palier porte un titre et un texte",
+    F.PALIERS.every(function (p) { return p.court && p.titre && p.t && p.t.length > 20; }));
+  t("chaque palier nomme une gamme connue",
+    F.PALIERS.every(function (p) { return F.GAMMES.some(function (g) { return g.id === p.gamme; }); }));
+})();
+
+/* L'atelier bout a bout : chaque palier doit produire une forme reelle
+   sur chacun de ses degres, sans quoi l'ecran resterait muet. */
+(function () {
+  const memo = {a: F.etat.atelier, p: F.etat.palier, b: F.etat.atelierBoucle,
+                d: F.etat.atelierDegre, r: F.etat.atelierRenv, j: F.etat.atelierJeu};
+  F.etat.atelier = true;
+  F.etat.atelierBoucle = false;
+  let muets = 0, essais = 0;
+  F.PALIERS.forEach(function (P) {
+    F.etat.palier = P.n;
+    P.renv.forEach(function (r) {
+      P.jeux.forEach(function (j) {
+        for (let d = 0; d < 7; d++) {
+          F.etat.atelierRenv = r; F.etat.atelierJeu = j; F.etat.atelierDegre = d;
+          essais++;
+          const tri = F.triadeAtelier();
+          if (!tri || !tri.positions || tri.positions.length !== 3) muets++;
+        }
+      });
+    });
+  });
+  t("l'atelier a ete parcouru en entier", essais > 200);
+  eq("aucune configuration de l'atelier ne reste muette", muets, 0);
+
+  /* le fond du manche montre la gamme, pas les marques du grade */
+  F.etat.palier = 4;
+  const m = F.marques();
+  eq("en atelier le fond du manche est la gamme entiere", Object.keys(m).length, 7);
+  t("les pastilles de fond sont petites",
+    Object.keys(m).every(function (k) { return m[k].petit === true; }));
+
+  F.etat.atelier = memo.a; F.etat.palier = memo.p; F.etat.atelierBoucle = memo.b;
+  F.etat.atelierDegre = memo.d; F.etat.atelierRenv = memo.r; F.etat.atelierJeu = memo.j;
+})();
+
+/* Interface de l'atelier presente et coherente. */
+t("bascule de voie presente", !!doc.getElementById("voieAtelier") && !!doc.getElementById("voieGrades"));
+t("barre de l'atelier presente", !!doc.getElementById("atelierBarre"));
+t("navigation par degre presente", !!doc.getElementById("triPrec") && !!doc.getElementById("triSuiv"));
+t("selecteurs de renversement et de jeu presents",
+  !!doc.getElementById("triRenv") && !!doc.getElementById("triJeu"));
+t("interrupteur de suivi de boucle present", !!doc.getElementById("basAtelierBoucle"));
+eq("l'atelier est ferme au depart", doc.getElementById("atelierBarre").hasAttribute("hidden"), true);
+t("l'etat de l'atelier est sauvegarde", /atelier:etat\.atelier/.test(HTML));
+t("le palier est sauvegarde", /palier:etat\.palier/.test(HTML));
+
+/* ------------------------------------------------------------------
+   14. Mode pupitre (lot A) — le viewport alloué, plus empilé
+   ------------------------------------------------------------------ */
+(function () {
+  const memoJeu = F.etat.jeu, memoPref = F.etat.pupitre, memoAtelier = F.etat.atelier;
+  const btn = doc.getElementById("btnPlein");
+  const CSS = HTML.split("<style>")[1].split("</style>")[0];
+
+  /* --- présence et instrumentation --- */
+  t("bouton pupitre present", !!btn);
+  t("le bouton pupitre est dans l'en-tete du manche", !!btn && !!btn.closest(".manche-entete"));
+  eq("le bouton pupitre annonce son etat", btn.getAttribute("aria-pressed"), "false");
+  t("le bouton pupitre porte un libelle", /pupitre/i.test(btn.getAttribute("aria-label") || ""));
+  t("l'icone du bouton est peuplee au chargement",
+    doc.getElementById("iconePlein").innerHTML.indexOf("path") >= 0);
+  t("interrupteur de preference present", !!doc.getElementById("basPupitre"));
+  eq("le mode pupitre est actif par defaut au depart",
+    doc.getElementById("basPupitre").getAttribute("aria-pressed"), "true");
+  eq("le corps n'est pas en pupitre au chargement", doc.body.classList.contains("jeu"), false);
+
+  /* --- bascule --- */
+  btn.dispatchEvent(new win.Event("click", { bubbles: true }));
+  eq("le clic entre en mode pupitre", doc.body.classList.contains("jeu"), true);
+  eq("l'etat du bouton suit", btn.getAttribute("aria-pressed"), "true");
+  t("le libelle devient une sortie", /quitter/i.test(btn.getAttribute("aria-label") || ""));
+  t("l'icone change de sens en pupitre",
+    doc.getElementById("iconePlein").innerHTML.indexOf("M9 3v6H3") >= 0);
+  btn.dispatchEvent(new win.Event("click", { bubbles: true }));
+  eq("un second clic en sort", doc.body.classList.contains("jeu"), false);
+  eq("l'etat du bouton revient", btn.getAttribute("aria-pressed"), "false");
+
+  /* la bulle survivrait au changement de regime : ses coordonnees sont
+     calculees dans l'ancien cadrage, elle se retrouverait a cote */
+  doc.getElementById("bulle").hidden = false;
+  btn.dispatchEvent(new win.Event("click", { bubbles: true }));
+  eq("entrer en pupitre referme la bulle", doc.getElementById("bulle").hidden, true);
+  btn.dispatchEvent(new win.Event("click", { bubbles: true }));
+
+  /* --- persistance : la preference se garde, le regime non --- */
+  btn.dispatchEvent(new win.Event("click", { bubbles: true }));
+  F.sauver();
+  const v1 = JSON.parse(win.localStorage.getItem("improvguit.v2") || "{}");
+  eq("le regime courant n'est pas persiste", "jeu" in v1, false);
+  btn.dispatchEvent(new win.Event("click", { bubbles: true }));
+
+  const bp = doc.getElementById("basPupitre");
+  bp.dispatchEvent(new win.Event("click", { bubbles: true }));
+  const v2 = JSON.parse(win.localStorage.getItem("improvguit.v2") || "{}");
+  eq("la preference pupitre est persistee", v2.pupitre, false);
+  eq("l'interrupteur suit", bp.getAttribute("aria-pressed"), "false");
+  bp.dispatchEvent(new win.Event("click", { bubbles: true }));
+  const v3 = JSON.parse(win.localStorage.getItem("improvguit.v2") || "{}");
+  eq("la preference se rallume", v3.pupitre, true);
+
+  /* --- regles de mise en page : le viewport est alloue, rien ne defile --- */
+  t("le corps en pupitre occupe la hauteur du viewport", /body\.jeu\{[^}]*100dvh/.test(CSS));
+  t("le corps en pupitre ne defile pas", /body\.jeu\{[^}]*overflow:hidden/.test(CSS));
+  t("le corps en pupitre est une colonne flex", /body\.jeu\{[^}]*flex-direction:column/.test(CSS));
+  t("le manche prend la hauteur restante", /body\.jeu \.manche-cadre\{[^}]*flex:1/.test(CSS));
+  t("le manche cesse de defiler", /body\.jeu \.manche-defil\{[^}]*overflow:hidden/.test(CSS));
+  t("le plafond de 52vh est leve", /body\.jeu \.manche-defil\{[^}]*max-height:none/.test(CSS));
+  t("le svg se dimensionne sur la hauteur", /body\.jeu svg\.manche\{[^}]*height:100%/.test(CSS));
+  ["header", "\\.voies", "\\.grades", "\\.reglages", "\\.consigne", "\\.pied"].forEach(function (sel) {
+    t("masque en pupitre : " + sel.replace(/\\\\/g, ""),
+      new RegExp("body\\.jeu > " + sel + "[,{]").test(CSS));
+  });
+  t("la navigation de l'atelier survit en pupitre", /body\.jeu > \.atelier-barre\{/.test(CSS));
+  t("les selecteurs de l'atelier sortent en pupitre",
+    /body\.jeu > \.atelier-barre \.atelier-choix/.test(CSS));
+  t("la grille garde deux rangees", /body\.jeu \.grille-cadre\{[^}]*max-height:104px/.test(CSS));
+
+  /* --- la sortie n'est jamais automatique --- */
+  t("arreter() ne touche pas au regime d'affichage",
+    !/function arreter[\s\S]*?\n\}/.exec(HTML)[0].match(/etat\.jeu/));
+  t("l'entree en pupitre est conditionnee a la preference",
+    /if\(etat\.pupitre && !etat\.jeu\)/.test(HTML));
+
+  F.etat.jeu = memoJeu; F.etat.pupitre = memoPref; F.etat.atelier = memoAtelier;
+  F.majJeu();
+})();
+
+/* ------------------------------------------------------------------
+   15. Correctif : hidden sans effet sur la barre d'atelier
+   ------------------------------------------------------------------ */
+/* display:flex pose en classe l'emporte sur la feuille de l'agent
+   utilisateur : sans garde [hidden], majVoie() n'eteignait pas la barre,
+   qui restait visible en voie Grades. Meme garde que .coach et .bulle. */
+t("la barre d'atelier a une garde [hidden]", /\.atelier-barre\[hidden\]\{display:none\}/
+  .test(HTML));
+eq("la barre d'atelier est bien eteinte en voie Grades",
+  win.getComputedStyle(doc.getElementById("atelierBarre")).display, "none");
+doc.getElementById("voieAtelier").dispatchEvent(new win.Event("click", { bubbles: true }));
+eq("la barre d'atelier reapparait en voie Atelier",
+  win.getComputedStyle(doc.getElementById("atelierBarre")).display, "flex");
+doc.getElementById("voieGrades").dispatchEvent(new win.Event("click", { bubbles: true }));
+eq("et se reeteint au retour",
+  win.getComputedStyle(doc.getElementById("atelierBarre")).display, "none");
+
+/* ------------------------------------------------------------------
+   16. Lot A-bis : geler l'affichage a la pause
+   ------------------------------------------------------------------ */
+/* arreter() remettait tempsAffiche a -1 puis appelait coachEffacer(), qui
+   relance rendreManche() : tempsCourant() retombait sur 0 et marques()
+   recalculait les pastilles du PREMIER accord de la boucle. Pause sur le D7
+   -> le manche sautait sur l'Am7, et les anneaux du coach disparaissaient par
+   le meme chemin. Arrete n'est pas remis a zero. */
+(function () {
+  const memoCoach = F.etat.coach, memoDuree = F.etat.duree, memoSaisie = F.etat.saisie;
+  F.etat.coach = true;
+  F.etat.duree = 0;
+  F.etat.battues = 4;
+  F.appliquerSaisie("Am7 | D7");
+  eq("grille de reference : 8 temps", F.timeline.length, 8);
+  t("changement d'accord au temps 4", !!F.timeline[4].debutAccord);
+
+  /* --- pause manuelle en plein deuxieme accord --- */
+  F.enMarche = true;
+  F.tempsAffiche = 5;
+  F.poserConsigne({ t: "consigne de controle" });
+  F.peindreTemps();
+  const accordAvant = F.accordCourant();
+  t("mise en place : on est bien sur le second accord", accordAvant === F.timeline[4].accord);
+
+  F.arreter(false);
+
+  eq("pause : le temps atteint est conserve", F.tempsAffiche, 5);
+  t("pause : le manche reste sur l'accord en cours", F.accordCourant() === accordAvant);
+  t("pause : la consigne du coach survit", !!F.coach.courant);
+  t("pause : le bandeau coach reste affiche", doc.getElementById("coach").hidden === false);
+  t("pause : la case de temps garde sa marque",
+    !!doc.querySelector('.temp[data-i="5"]') &&
+    doc.querySelector('.temp[data-i="5"]').classList.contains("on"));
+  t("pause : la grille passe en gele", doc.getElementById("grille").classList.contains("fige"));
+  t("pause : le battement d'armement s'eteint",
+    !doc.getElementById("manche").classList.contains("coach-armee"));
+  t("le temps gele se lit en creux, pas en relief",
+    /#grille\.fige \.temp\.on\{transform:none/.test(HTML));
+
+  /* --- fin de seance : la remise a zero, elle, reste entiere --- */
+  F.enMarche = true;
+  F.tempsAffiche = 5;
+  F.poserConsigne({ t: "consigne de controle" });
+  F.arreter(true);
+  eq("fin de seance : le temps repart a -1", F.tempsAffiche, -1);
+  t("fin de seance : le coach est vide", F.coach.courant === null);
+  t("fin de seance : le bandeau coach est eteint", doc.getElementById("coach").hidden === true);
+  t("fin de seance : plus de gel sur la grille",
+    !doc.getElementById("grille").classList.contains("fige"));
+  eq("fin de seance : le manche retombe sur le premier temps", F.tempsCourant(), 0);
+  t("fin de seance : aucune case n'est marquee",
+    doc.querySelectorAll(".temp.on").length === 0);
+
+  /* --- une grille neuve perime l'image gelee --- */
+  F.enMarche = false;
+  F.tempsAffiche = 7;
+  F.appliquerSaisie("Cmaj7");
+  eq("nouvelle grille : l'image gelee est relachee", F.tempsAffiche, -1);
+  t("nouvelle grille : l'index gele ne survit pas hors timeline",
+    F.tempsCourant() < F.timeline.length);
+
+  /* --- la remise a zero est desormais conditionnee --- */
+  const CORPS_ARRETER = /function arreter\([\s\S]*?\n\}/.exec(HTML)[0];
+  t("arreter() ne remet plus tempsAffiche a -1 sans condition",
+    /if\(fini\)\{[\s\S]*?tempsAffiche = -1/.test(CORPS_ARRETER));
+  t("arreter() n'appelle coachEffacer() que sur fin de seance",
+    /if\(fini\)\{[\s\S]*?coachEffacer\(\);[\s\S]*?\}else\{/.test(CORPS_ARRETER));
+  t("arreter() ne touche toujours pas au regime d'affichage",
+    !/etat\.jeu/.test(CORPS_ARRETER));
+
+  F.etat.coach = memoCoach;
+  F.etat.duree = memoDuree;
+  F.appliquerSaisie(memoSaisie);
+  F.enMarche = false;
+})();
+
+/* ------------------------------------------------------------------
+   17. Grille de palier : l'atelier apporte sa propre boucle
+   ------------------------------------------------------------------ */
+/* Un palier ne decrivait que des formes ; rien ne disait quand en changer.
+   Il porte desormais sa grille, ecrite en DEGRES et harmonisee a la volee :
+   aucune suite d'accords n'est tabulee, tout se transpose avec la tonique. */
+(function () {
+  const memoSaisie = F.etat.saisie, memoTon = F.etat.toniqueModele;
+  const memoAtelier = F.etat.atelier, memoPalier = F.etat.palier;
+  const memoBoucle = F.etat.atelierBoucle, memoAvant = F.etat.saisieAvant;
+
+  /* --- aucune suite d'accords en dur dans le fichier --- */
+  t("aucune grille de palier ecrite en lettres",
+    !/grille:\s*\[\s*["']/.test(HTML));
+  F.PALIERS.forEach(function (P) {
+    t("le palier " + P.court + " porte une grille en degres",
+      Array.isArray(P.grille) && P.grille.length > 0 &&
+      P.grille.every(function (d) { return d >= 1 && d <= 7; }));
+    t("les degres du palier " + P.court + " sont couverts par la gamme du palier",
+      P.grille.every(function (d) {
+        const g = F.GAMMES.filter(function (x) { return x.id === P.gamme; })[0];
+        return !!g && d <= g.iv.length;
+      }));
+  });
+
+  /* --- la grille se construit, se relit, et porte la bonne tonique --- */
+  F.etat.toniqueModele = 0;
+  const A0 = F.PALIERS[0];
+  eq("A0 : deux mesures par accord", A0.mes, 2);
+  eq("A0 en Do", F.grillePalier(A0), "C | % | F | % | C | % | G | %");
+  const lu = F.lireBoucle(F.grillePalier(A0), 4);
+  t("A0 : grille relisible", !lu.erreur);
+  eq("A0 : huit mesures", lu.mesures.length, 8);
+  /* le 1 revient au milieu, pas en fin : la couture de la boucle enchaine
+     5 -> 1, cadence naturelle, et la tonique ne tient jamais plus de deux
+     mesures d'affilee. Les deux 1 sont deux objets distincts, donc deux
+     attaques — c'est bien un retour, pas une tenue. */
+  eq("A0 : quatre accords, le 1 revenant au milieu",
+    F.accordsUniques(lu.mesures).length, 4);
+  eq("A0 : le repere revient a la mesure 5",
+    F.NOMS[lu.mesures[4][0].pc], "C");
+  t("A0 : la couture de la boucle enchaine 5 vers 1",
+    lu.mesures[6][0].pc === 7 && lu.mesures[0][0].pc === 0);
+  t("A0 : la tonique ne tient jamais plus de deux mesures",
+    lu.mesures[2][0].pc !== 0 && lu.mesures[6][0].pc !== 0);
+  eq("A0 : trois hauteurs distinctes",
+    F.accordsUniques(lu.mesures).map(function (a) { return a.pc; })
+      .filter(function (v, i, t2) { return t2.indexOf(v) === i; }).length, 3);
+  eq("A0 : la tonique lue est celle demandee", F.toniqueModale(lu.mesures, 0), 0);
+  t("« % » tient l'accord sans le rejouer",
+    lu.mesures[0][0] === lu.mesures[1][0]);
+
+  eq("A1 pose un mineur au premier changement", F.grillePalier(F.PALIERS[1]),
+    "C | % | Am | % | F | % | G | %");
+  t("A2 parcourt les sept degres",
+    F.PALIERS[2].grille.slice().sort().join() === "1,2,3,4,5,6,7,1".split(",").sort().join());
+
+  /* --- la grille se transpose --- */
+  F.etat.toniqueModele = 4;
+  eq("A0 se transpose en Mi", F.grillePalier(A0), "E | % | A | % | E | % | B | %");
+  eq("A9 suit la gamme mineure du palier",
+    F.grillePalier(F.PALIERS[9]).split(" | ")[0], "Em");
+  F.etat.toniqueModele = 0;
+
+  /* --- entrer dans l'atelier pose la grille et force la boucle --- */
+  F.etat.atelier = false;
+  F.etat.saisieAvant = "";
+  F.etat.atelierBoucle = false;
+  F.appliquerSaisie("Am7 | D7");
+  doc.getElementById("voieAtelier").dispatchEvent(new win.Event("click", { bubbles: true }));
+  eq("l'entree en atelier pose la grille du palier", F.etat.saisie, F.grillePalier(F.PALIERS[F.etat.palier]));
+  t("l'entree en atelier force le suivi de boucle", F.etat.atelierBoucle === true);
+  eq("la boucle d'avant est mise de cote", F.etat.saisieAvant, "Am7 | D7");
+
+  /* --- changer de palier repose la grille --- */
+  const cible = doc.querySelector('#paliers .grade[data-p="1"]');
+  t("les paliers sont cliquables", !!cible);
+  if (cible) {
+    cible.dispatchEvent(new win.Event("click", { bubbles: true }));
+    eq("changer de palier repose sa grille", F.etat.saisie, F.grillePalier(F.PALIERS[1]));
+    eq("le memo n'est pas ecrase au changement de palier", F.etat.saisieAvant, "Am7 | D7");
+  }
+
+  /* --- la tonique de travail est celle du selecteur, des deux cotes --- */
+  eq("la tonique de l'atelier suit le selecteur", F.toniqueAtelier(), F.etat.toniqueModele);
+  const sel = doc.getElementById("tonique");
+  sel.value = "7";
+  sel.dispatchEvent(new win.Event("change", { bubbles: true }));
+  eq("changer de tonique reecrit la grille du palier", F.etat.saisie, F.grillePalier(F.PALIERS[1]));
+  t("la grille est bien passee en Sol", F.etat.saisie.indexOf("G |") === 0);
+  t("plus de tonique d'atelier figee dans le code", !/ATELIER_TONIQUE/.test(HTML));
+
+  /* --- revenir aux grades rend la boucle --- */
+  doc.getElementById("voieGrades").dispatchEvent(new win.Event("click", { bubbles: true }));
+  eq("le retour aux grades rend la boucle d'avant", F.etat.saisie, "Am7 | D7");
+  eq("le memo est consomme", F.etat.saisieAvant, "");
+
+  F.etat.toniqueModele = memoTon;
+  F.etat.palier = memoPalier;
+  F.etat.atelierBoucle = memoBoucle;
+  F.etat.saisieAvant = memoAvant;
+  F.etat.atelier = memoAtelier;
+  F.majVoie();
+  F.appliquerSaisie(memoSaisie);
+})();
+
+/* ------------------------------------------------------------------
+   18. Enchainer au plus pres : le drapeau proche entre en service
+   ------------------------------------------------------------------ */
+/* proche:true etait declare sur A5 a A10 et lu NULLE PART : formeTriade
+   balayait de la case 0 vers le haut et retenait la premiere forme trouvee,
+   donc la position la plus grave du renversement fige. La main sautait le
+   manche et le deplacement minimal — toute la lecon — restait invisible. */
+(function () {
+  const memoZone = F.etat.zone, memoTon = F.etat.toniqueModele, memoJeu = F.etat.atelierJeu;
+  const memoAtelier = F.etat.atelier, memoPalier = F.etat.palier;
+  const memoSaisie = F.etat.saisie, memoAvant = F.etat.saisieAvant;
+  F.etat.toniqueModele = 0;
+
+  t("le drapeau proche est desormais lu", /P\.proche/.test(HTML));
+  F.PALIERS.forEach(function (P) {
+    if (P.n >= 5) t("le palier " + P.court + " enchaine au plus pres", P.proche === true || P.sym === true);
+  });
+
+  /* --- enumeration des octaves : le plancher ne bride que la fondamentale --- */
+  const j432 = F.JEUX[2];
+  const oct = F.formesTriade(0, "maj", 1, j432, 0, 15, 4);
+  eq("Do 1er renversement : deux octaves sur 4-3-2", oct.length, 2);
+  eq("la premiere est la plus grave", oct[0].positions.map(function (p) { return p.f; }).join("-"), "2-0-1");
+  eq("la seconde est une octave plus haut", oct[1].positions.map(function (p) { return p.f; }).join("-"), "14-12-13");
+  t("les octaves sortent en ordre croissant",
+    F.centreForme(oct[0]) < F.centreForme(oct[1]));
+  t("une voix haute plus basse que la fondamentale n'est pas perdue",
+    oct[1].positions[1].f < oct[1].positions[0].f);
+  eq("Do 2e renversement : la forme en barre", 
+    F.formesTriade(0, "maj", 2, j432, 0, 15, 4)[0].positions.map(function (p) { return p.f; }).join("-"), "5-5-5");
+  eq("centreForme est la moyenne des cases", F.centreForme(oct[0]), 1);
+
+  /* --- sans precedente, on tombe au milieu de la fenetre affichee --- */
+  F.etat.zone = "0-12";
+  F.etat.atelierJeu = 2;
+  const P5 = F.PALIERS[5];
+  const depart = F.formeProche(0, "maj", P5, null);
+  t("sans precedente, la forme tombe pres du milieu de la fenetre",
+    Math.abs(F.centreForme(depart.forme) - 6) <= 2);
+
+  /* --- la chaine voyage nettement moins que la premiere forme venue --- */
+  function parcours(P, avecProche) {
+    const lu = F.lireBoucle(F.grillePalier(P), 4);
+    const vus = [];
+    lu.mesures.forEach(function (m) {
+      if (!vus.length || vus[vus.length - 1] !== m[0]) vus.push(m[0]);
+    });
+    let ref = null, total = 0, jeux = [];
+    vus.forEach(function (a) {
+      const q = F.triadeDeAccord(a);
+      let f, ij;
+      if (avecProche) { const c = F.formeProche(a.pc, q, P, ref); f = c.forme; ij = c.jeuIdx; }
+      else { f = F.formeTriade(a.pc, q, P.renv[0], F.JEUX[P.jeux[0]], 0, 15, 4); ij = P.jeux[0]; }
+      const ct = F.centreForme(f);
+      if (ref) total += Math.abs(ct - ref.centre);
+      ref = { centre: ct, jeuIdx: ij };
+      jeux.push(ij);
+    });
+    return { total: total, jeux: jeux, n: vus.length };
+  }
+  const avec = parcours(P5, true), sans = parcours(P5, false);
+  t("la grille d'A5 fait huit accords", avec.n === 8);
+  t("au plus pres voyage moins que la premiere forme venue", avec.total < sans.total);
+  t("au plus pres tient sous deux cases par changement",
+    avec.total / (avec.n - 1) < 2);
+  t("la premiere forme venue depassait quatre cases par changement",
+    sans.total / (sans.n - 1) > 4);
+
+  /* --- priorite au jeu de cordes : on ne le quitte pas pour deux cases --- */
+  t("le seuil de changement de jeu vaut six cases", F.PENALITE_JEU === 6);
+  const P7 = F.PALIERS[7];
+  t("A7 ouvre plusieurs jeux de cordes", P7.jeux.length > 1);
+  const a7 = parcours(P7, true);
+  t("la chaine reste sur le jeu de depart malgre les jeux ouverts",
+    a7.jeux.every(function (j) { return j === a7.jeux[0]; }));
+  t("le jeu de depart est celui choisi a la main", a7.jeux[0] === F.etat.atelierJeu);
+
+  /* --- la fenetre affichee entre dans le choix --- */
+  F.oublierFormeAtelier();
+  F.etat.zone = "5-10";
+  const dedans = F.formeProche(0, "maj", P5, null);
+  t("la forme choisie tient dans la fenetre affichee",
+    dedans.forme.positions.every(function (p) { return p.f >= 5 && p.f <= 10; }));
+  F.etat.zone = "0-12";
+
+  /* --- idempotence : trois appels par rendu, une seule forme --- */
+  F.etat.atelier = true;
+  F.etat.palier = 5;
+  F.etat.saisieAvant = F.etat.saisieAvant || F.etat.saisie;
+  F.poserGrillePalier();
+  F.majVoie();
+  const t1 = F.triadeAtelier(), t2 = F.triadeAtelier(), t3 = F.triadeAtelier();
+  t("triadeAtelier ne bouge pas d'un appel a l'autre", !!t1 && t1 === t2 && t2 === t3);
+  F.oublierFormeAtelier();
+  const t4 = F.triadeAtelier();
+  eq("oublier la memoire ne change pas la forme de depart",
+    t4.positions.map(function (p) { return p.f; }).join("-"),
+    t1.positions.map(function (p) { return p.f; }).join("-"));
+
+  /* --- le menu renversement ne commande plus rien : il le dit --- */
+  F.rendreChoixAtelier();
+  const selR = doc.getElementById("triRenv");
+  t("le menu renversement est neutralise au palier A5", selR.disabled === true);
+  t("le menu renversement annonce le calcul", /au plus pr/.test(selR.textContent));
+  F.etat.palier = 0;
+  F.poserGrillePalier();
+  F.rendreChoixAtelier();
+  t("le menu renversement reste inerte a A0, qui n'offre qu'un renversement",
+    doc.getElementById("triRenv").disabled === true);
+  t("mais A0 nomme bien un renversement", !/au plus pr/.test(doc.getElementById("triRenv").textContent));
+
+  F.etat.zone = memoZone; F.etat.toniqueModele = memoTon; F.etat.atelierJeu = memoJeu;
+  F.etat.palier = memoPalier; F.etat.atelier = memoAtelier; F.etat.saisieAvant = memoAvant;
+  F.oublierFormeAtelier();
+  F.majVoie();
+  F.appliquerSaisie(memoSaisie);
+})();
 
 console.log("\n" + (ok + ko) + " assertions — " + ok + " au vert, " + ko + " au rouge");
 console.log(REP
