@@ -19,8 +19,68 @@
   --bois:#2C2118;
   --frette:#B99242;
   --corde:#98A0AA;
+  /* Jetons extraits de règles où la couleur était écrite en dur : sans eux,
+     le thème clair laissait derrière lui un temps fort ardoise, un message
+     d'erreur saumon illisible et une barre de transport restée noire. */
+  --temps-fort:#313C4B;
+  --erreur-trait:#C4614F;
+  --erreur-texte:#E08878;
+  --voile-coach:rgba(214,167,60,.10);
+  --voile-transport:rgba(20,26,36,.94);
+  --ombre-bulle:0 10px 26px rgba(0,0,0,.55);
   --mono:ui-monospace,"SF Mono","Roboto Mono","DejaVu Sans Mono",Menlo,Consolas,monospace;
   --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+
+/* ── Thème clair — les jetons sont ceux du Portail Formation Musicale ────────
+   Le portail FAIT AUTORITÉ sur la clé `fm-theme` : il l'écrit, les applications
+   la lisent. Sans ce bloc, basculer en « Clair » sur le portail laissait cette
+   app noire, et la promesse « le thème suit partout » devenait fausse.
+   Valeurs de la charte reprises telles quelles : crème #f4ece0, papier #fbf6ee,
+   encre #382d24, trait #d9c9b1, sépia #7a5f3c, or foncé #8a6417.
+
+   ⚑ `--encre` porte DEUX rôles ici : le fond de page (html, body, champs) ET
+   le texte posé SUR une pastille d'accent (grade actif, essai, bouton jouer,
+   degrés du manche). Les deux tiennent parce que le rapport s'inverse d'un
+   thème à l'autre — fond sombre + accent clair devient fond clair + accent
+   sombre. Ne pas dissocier ces deux rôles sans refaire la mesure.
+
+   ⚑ LE MANCHE BASCULE AUSSI. Le bois passe de la palissandre à l'érable : un
+   bois de manche réel, pas une licence graphique. S'il restait sombre, les
+   pastilles assombries pour le fond clair y deviendraient illisibles. Le
+   manche et ses marques forment un système ; ils basculent ensemble.
+
+   Rapports MESURÉS (WCAG 2.x) en clair — le banc du portail les rejoue (§20) :
+     texte courant sur le fond de page ...... 11,42:1
+     texte secondaire sur carte .............. 5,53:1
+     accent-texte sur carte .................. 4,98:1
+     texte SUR pastille laiton ............... 4,58:1
+     degré SUR pastille indigo ............... 5,93:1
+     message d'erreur sur carte .............. 6,39:1
+     pastille laiton sur le manche ........... 3,76:1
+     pastille indigo sur le manche ........... 4,87:1
+     halo vert sur le manche ................. 4,40:1
+     petite pastille sur le manche ........... 4,17:1
+   ── */
+html[data-fm-theme="clair"]{
+  --encre:#f4ece0;
+  --ardoise:#fbf6ee;
+  --ardoise-clair:#ffffff;
+  --trait:#d9c9b1;
+  --nacre:#382d24;
+  --nacre-faible:#7a5f3c;
+  --laiton:#8a6417;
+  --indigo:#3a5a8c;
+  --vert:#2f6b52;
+  --bois:#e8d6b4;
+  --frette:#9a7433;
+  --corde:#6d6f74;
+  --temps-fort:#ece0cb;
+  --erreur-trait:#a63f2e;
+  --erreur-texte:#9c3a2d;
+  --voile-coach:rgba(138,100,23,.10);
+  --voile-transport:rgba(251,246,238,.94);
+  --ombre-bulle:0 10px 26px rgba(56,45,36,.18);
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{background:var(--encre);color:var(--nacre);font-family:var(--sans);-webkit-text-size-adjust:100%}
@@ -65,7 +125,7 @@ header{display:flex;align-items:center;justify-content:space-between;gap:10px;pa
 /* Bulle pédagogique du manche */
 .manche-defil{position:relative}
 #manche circle[data-pc]{cursor:pointer}
-.bulle{position:absolute;z-index:40;max-width:270px;background:var(--ardoise-clair);border:1px solid var(--trait);border-left:3px solid var(--laiton);border-radius:6px;padding:11px 13px;box-shadow:0 10px 26px rgba(0,0,0,.55)}
+.bulle{position:absolute;z-index:40;max-width:270px;background:var(--ardoise-clair);border:1px solid var(--trait);border-left:3px solid var(--laiton);border-radius:6px;padding:11px 13px;box-shadow:var(--ombre-bulle)}
 .bulle[hidden]{display:none}
 .bulle .bulle-note{font-family:var(--mono);font-weight:600;color:var(--laiton);font-size:15px}
 .bulle .bulle-faits{display:block;font-size:12px;color:var(--nacre-faible);margin:3px 0 7px;line-height:1.4}
@@ -95,7 +155,7 @@ svg.manche{display:block;width:100%;height:auto}
 .mesure.change .mesure-nom{color:var(--nacre)}
 .temps{display:flex;gap:3px}
 .temp{flex:1;height:16px;border-radius:2px;background:var(--ardoise-clair);transition:background .07s,transform .07s}
-.temp.fort{background:#313C4B}
+.temp.fort{background:var(--temps-fort)}
 .temp.zone{box-shadow:inset 0 0 0 1.5px var(--laiton)}
 .temp.on{background:var(--nacre);transform:scaleY(1.28)}
 .temp.on.chgt{background:var(--laiton)}
@@ -111,8 +171,8 @@ svg.manche{display:block;width:100%;height:auto}
 .champ label,.groupe-titre{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--nacre-faible);margin-bottom:6px}
 input[type=text],select{width:100%;background:var(--encre);border:1px solid var(--trait);border-radius:3px;padding:9px 10px;font-family:var(--mono);font-size:15px}
 select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--nacre-faible) 50%),linear-gradient(135deg,var(--nacre-faible) 50%,transparent 50%);background-position:calc(100% - 16px) 18px,calc(100% - 11px) 18px;background-size:5px 5px;background-repeat:no-repeat}
-input[type=text].erreur{border-color:#C4614F}
-.msg-erreur{font-size:12.5px;color:#E08878;margin-top:6px}
+input[type=text].erreur{border-color:var(--erreur-trait)}
+.msg-erreur{font-size:12.5px;color:var(--erreur-texte);margin-top:6px}
 .aide{font-size:12px;color:var(--nacre-faible);margin-top:6px}
 .presets{display:flex;flex-wrap:wrap;gap:5px}
 .preset{font-family:var(--mono);font-size:12px;padding:6px 10px;border:1px solid var(--trait);border-radius:3px;color:var(--nacre);text-align:left}
@@ -128,7 +188,7 @@ input[type=text].erreur{border-color:#C4614F}
 /* Bandeau lu à un mètre, une guitare dans les bras : à 15 px sur un
    téléphone, il fallait s'y pencher. L'étiquette passe en chapeau discret
    pour rendre toute la largeur à la consigne elle-même. */
-.coach{padding:11px 14px;border-bottom:1px solid var(--trait);background:rgba(214,167,60,.10);color:var(--nacre);font-size:18px;line-height:1.45}
+.coach{padding:11px 14px;border-bottom:1px solid var(--trait);background:var(--voile-coach);color:var(--nacre);font-size:18px;line-height:1.45}
 .coach .etiq{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--laiton);opacity:.75;margin-bottom:2px}
 .coach b{color:var(--laiton);font-weight:600}
 .coach[hidden]{display:none}
@@ -138,7 +198,7 @@ input[type=text].erreur{border-color:#C4614F}
 .fichier input{display:none}
 .etat-rep{font-size:12px;color:var(--nacre-faible);margin-top:6px}
 
-.transport{position:fixed;left:0;right:0;bottom:0;background:rgba(20,26,36,.94);backdrop-filter:blur(10px);border-top:1px solid var(--trait);padding:11px 14px calc(11px + env(safe-area-inset-bottom))}
+.transport{position:fixed;left:0;right:0;bottom:0;background:var(--voile-transport);backdrop-filter:blur(10px);border-top:1px solid var(--trait);padding:11px 14px calc(11px + env(safe-area-inset-bottom))}
 .transport-int{max-width:560px;margin:0 auto;display:flex;align-items:center;gap:12px}
 .jouer{width:54px;height:54px;flex:0 0 auto;border-radius:50%;background:var(--laiton);color:var(--encre);display:grid;place-items:center}
 .jouer svg{width:22px;height:22px;fill:currentColor}
@@ -199,6 +259,43 @@ body.jeu .grille-cadre{flex:0 0 auto;max-height:104px;margin-bottom:0}
 
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}.temp.on{transform:none}}
 </style>
+
+<!-- ==== Crochet de thème — cette app LIT `fm-theme`, elle ne l'écrit jamais ====
+     Un seul écrivain par clé : le portail. Ici on lit, on applique, et c'est
+     tout. Placé dans <head>, donc avant le premier rendu : pas de flash.
+     `?theme=` est accepté pour pouvoir arriver depuis une autre origine, où le
+     localStorage n'est pas partagé — mais il n'écrit rien non plus.
+     Même crochet, au mot près, que celui d'`oreille/index.html`.
+
+     La barre d'état du téléphone est recopiée du fond RÉELLEMENT peint plutôt
+     que d'une constante en double : deux valeurs pour une seule couleur, c'est
+     une divergence qui attend son heure. -->
+<script>
+(function(){
+  try{
+    var t = null;
+    try{ t = new URLSearchParams(location.search).get("theme"); }catch(e){}
+    if(t !== "clair" && t !== "sombre"){
+      try{ t = localStorage.getItem("fm-theme"); }catch(e){ t = null; }
+    }
+    if(t === "clair" || t === "sombre") document.documentElement.setAttribute("data-fm-theme", t);
+  }catch(e){}
+  function barre(){
+    try{
+      var m = document.querySelector('meta[name="theme-color"]');
+      var f = getComputedStyle(document.body).backgroundColor;
+      var v = f.match(/\d+/g);
+      if(m && v && v.length >= 3){
+        m.setAttribute("content", "#" + v.slice(0,3).map(function(n){
+          return ("0" + (+n).toString(16)).slice(-2);
+        }).join("").toUpperCase());
+      }
+    }catch(e){}
+  }
+  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", barre);
+  else barre();
+})();
+</script>
 </head>
 <body>
 
