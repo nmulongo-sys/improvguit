@@ -162,6 +162,50 @@ Le double d'`AudioContext` tient **deux journaux séparés**, `__rampes` pour le
 > reconstituées ici. Le journal est en ajout seul : mieux vaut un trou visible qu'une
 > continuité inventée.
 
+### 2026-08-22 (soir) — X13 : l'anticipation s'écrit sur l'accord, pas dans la grille
+
+**Ce que ça change.** `lireAccord()` lit désormais cinq marqueurs de restitution portés par le
+symbole d'accord lui-même : `^C` anticipation de croche, `^^C` anticipation de double, `C.`
+silence, `C..` frappe, `C...` tenue. L'objet retourné gagne deux champs, `push` (0, 1 ou 2) et
+`tenue` (`normal` · `silence` · `frappe` · `tenue`). Rien d'autre ne bouge.
+
+**Pourquoi ce n'était pas un blocage, mais une question mal posée.** Pendant des semaines le point
+s'est formulé ainsi : *« la grille dit quand ça sonne, jamais quel accord »* — donc où écrire une
+anticipation harmonique ? La réponse est qu'elle ne s'écrit **pas** dans la grille rythmique. Le
+*où* est un marqueur d'accord ; le *combien* (`push8` / `push16`, en ticks à 120 par temps) est un
+champ de profil de style. Deux endroits, deux natures. C'est ce qui permet aux versions rock, funk,
+jazz et reggae d'un même titre de continuer à partager **exactement la même grille**, marqueurs
+compris. Tant qu'on cherchait un seul endroit pour les deux, il n'y en avait aucun de bon.
+
+**Pourquoi le décapage ne peut pas manger un accord existant.** Aucun des 50 alias de `QUALITES` ne
+commence par un accent circonflexe, aucun ne se termine par un point. C'est vérifiable, donc ce
+n'est pas un argument : ce sont deux assertions du banc, et elles sont **vertes avant le patch**.
+Si elles avaient rougi, la modification n'aurait pas été additive et il aurait fallu s'arrêter.
+La non-régression est balayée en grand : les **1 050 symboles** légaux — sept lettres, trois
+altérations, cinquante qualités — sont relus un par un et comparés symbole, fondamentale et
+intervalles. Zéro déviant, avant comme après.
+
+**Un point isolé reste une prolongation.** `PROLONGE = /^[_.]$/` intercepte le token `.` seul dans
+`lireBoucle()` avant qu'il n'atteigne `lireAccord()` : `C . . .` continue de donner quatre
+emplacements tenus sur la même référence d'objet. C'est asserté, parce que c'est exactement le
+genre d'effet de bord qu'un décapage de fin de chaîne provoque en silence.
+
+**Ce que la contre-épreuve a trouvé, et que je n'aurais pas vu autrement.** Six régressions
+délibérées ont été fabriquées dans le fichier neuf — décapage retiré, garde à deux carets levée,
+marqueur laissé dans `sym`, silence et frappe intervertis, une case décalée d'un rang, décapage
+rendu inopérant. Cinq ont rougi du premier coup. La sixième, *« la chaîne vidée par le décapage
+n'est plus refusée »*, est **restée verte** : la garde `if(!s) return null;` que j'avais posée après
+le décapage était inatteignable comme différence, puisque le regex exige déjà une lettre A-G. Elle
+a été retirée, et remplacée par un commentaire qui dit pourquoi il n'y en a pas. Sans mutation, ces
+trois lignes seraient passées pour testées.
+
+**Ce qui n'est pas fait.** Le moteur *lit* les marqueurs ; il ne les *joue* pas encore. Avancer la
+nappe de `push8` ticks, taire l'accompagnement sur `C.`, le frapper sec sur `C..` — c'est la couche
+suivante, et elle attend la boîte à rythmes. Les écritures `C....`, `^^^C` et `C6/9` restent
+illisibles, la dernière parce que le `/` isolé vaut répétition de mesure : point ouvert, inchangé.
+
+**Le banc.** 814 → **842 assertions**, toutes vertes.
+
 ### 2026-08-22 — la couche impro : le coach ne dit plus, il joue
 
 **Ce que ça change.** Le moteur savait déjà lire une grille, savoir quelle note vaut quoi à

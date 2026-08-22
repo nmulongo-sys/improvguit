@@ -67,6 +67,7 @@ const F = win.eval("({lireAccord, lireBoucle, accordsUniques, notesCommunes, not
   " analyserNote, cleCorpus, contenuBulle, faitsNote, CORPUS, MODELES," +
   " montrerBulle, cacherBulle, appliquerSaisie, appliquerModele, rendreManche, rendreConsigne," +
   " dureeAccord, etat, GRADES, GAMMES, NOMS, MAX_MESURES," +
+  " QUALITES, ALIAS," +
   " TRIADES, JEUX, RENVERSEMENTS, PALIERS, formeTriade, harmoniserGamme, nashville," +
   " triadeDeAccord, triadeAtelier, palier, marques, sauver, majJeu, majVoie," +
   " arreter, reconstruire, peindreTemps, tempsCourant, accordCourant,"  +
@@ -94,6 +95,96 @@ t("Gmaj9 lisible", !!F.lireAccord("Gmaj9"));
 t("H illisible", F.lireAccord("H") === null);
 t("chaîne vide illisible", F.lireAccord("") === null);
 t("Czz illisible", F.lireAccord("Czz") === null);
+
+/* ------------------------------------------------------------------
+   2 bis. X13 — les marqueurs de restitution, portés par le symbole d'accord
+   ^C croche · ^^C double · C. silence · C.. frappe · C... tenue
+   Notes 01 §« Les cinq marqueurs » et 14 §2. L'anticipation ne s'écrit pas
+   dans la grille rythmique : elle s'écrit sur l'accord. Le *où* est un
+   marqueur d'accord, le *combien* est un champ de profil de style.
+   ------------------------------------------------------------------ */
+
+/* -- Innocuité. Ces deux assertions doivent être VERTES AVANT le patch :
+      c'est la preuve que le décapage ne peut manger aucun accord existant.
+      Si elles rougissent, la modification n'est pas additive et on s'arrête. */
+t("innocuité : aucun alias de QUALITES ne commence par ^",
+  F.QUALITES.every(function(q){ return q.a.every(function(al){ return al.charAt(0) !== "^"; }); }));
+t("innocuité : aucun alias de QUALITES ne se termine par un point",
+  F.QUALITES.every(function(q){ return q.a.every(function(al){ return al.charAt(al.length - 1) !== "."; }); }));
+
+/* -- Non-régression. Tout l'alphabet légal d'accords, balayé, doit se lire
+      exactement comme avant : même symbole, même fondamentale, mêmes
+      intervalles. Verte avant ET après — « une assertion qui passe des deux
+      côtés ne teste rien » ne s'applique pas ici : c'est justement son rôle. */
+const RACINES_X13 = {C:0, D:2, E:4, F:5, G:7, A:9, B:11};
+const ALPHABET_X13 = [];
+Object.keys(RACINES_X13).forEach(function(L){
+  ["", "#", "b"].forEach(function(alt){
+    F.QUALITES.forEach(function(q){
+      q.a.forEach(function(al){
+        const d = alt === "#" ? 1 : alt === "b" ? -1 : 0;
+        ALPHABET_X13.push({txt: L + alt + al, pc: ((RACINES_X13[L] + d) % 12 + 12) % 12, iv: q.iv});
+      });
+    });
+  });
+});
+const DEVIANTS_X13 = [];
+ALPHABET_X13.forEach(function(c){
+  const a = F.lireAccord(c.txt);
+  if(!a || a.sym !== c.txt || a.pc !== c.pc || a.iv.join() !== c.iv.join()) DEVIANTS_X13.push(c.txt);
+});
+t("non-régression : tout l'alphabet d'accords se lit inchangé (" + ALPHABET_X13.length +
+  " symboles, déviants : " + (DEVIANTS_X13.slice(0, 6).join(" ") || "aucun") + ")",
+  DEVIANTS_X13.length === 0);
+t("non-régression nommée : C", F.lireAccord("C").sym === "C" && F.lireAccord("C").notes.join() === "0,4,7");
+t("non-régression nommée : Cmaj7", F.lireAccord("Cmaj7").sym === "Cmaj7" && F.lireAccord("Cmaj7").notes.join() === "0,4,7,11");
+t("non-régression nommée : C6/9 reste illisible (l'écriture / n'est pas supportée — point ouvert)",
+  F.lireAccord("C6/9") === null);
+
+/* -- Décapage. Rouge avant le patch : le regex refuse le ^, et « . » part en
+      chercherQualite(".") qui ne trouve rien. */
+t("^C7 : push 1", !!F.lireAccord("^C7") && F.lireAccord("^C7").push === 1);
+eq("^C7 : symbole dépouillé", F.lireAccord("^C7") ? F.lireAccord("^C7").sym : null, "C7");
+t("^C7 : mêmes notes que C7",
+  !!F.lireAccord("^C7") && F.lireAccord("^C7").notes.join() === F.lireAccord("C7").notes.join());
+t("^^C7 : push 2", !!F.lireAccord("^^C7") && F.lireAccord("^^C7").push === 2);
+eq("C. : tenue silence", F.lireAccord("C.") ? F.lireAccord("C.").tenue : null, "silence");
+eq("C. : symbole dépouillé", F.lireAccord("C.") ? F.lireAccord("C.").sym : null, "C");
+eq("C.. : tenue frappe", F.lireAccord("C..") ? F.lireAccord("C..").tenue : null, "frappe");
+eq("C... : tenue tenue", F.lireAccord("C...") ? F.lireAccord("C...").tenue : null, "tenue");
+t("C : push 0 et tenue normal par défaut",
+  F.lireAccord("C").push === 0 && F.lireAccord("C").tenue === "normal");
+t("^Cmaj7.. : les deux marqueurs se cumulent",
+  !!F.lireAccord("^Cmaj7..") && F.lireAccord("^Cmaj7..").push === 1 &&
+  F.lireAccord("^Cmaj7..").tenue === "frappe" && F.lireAccord("^Cmaj7..").sym === "Cmaj7");
+t("^^Bbm7b5... : le décapage ne touche ni la fondamentale ni les notes",
+  !!F.lireAccord("^^Bbm7b5...") && F.lireAccord("^^Bbm7b5...").pc === F.lireAccord("Bbm7b5").pc &&
+  F.lireAccord("^^Bbm7b5...").notes.join() === F.lireAccord("Bbm7b5").notes.join());
+const NEUTRES_X13 = ALPHABET_X13.filter(function(c){
+  const a = F.lireAccord(c.txt);
+  return !a || a.push !== 0 || a.tenue !== "normal";
+});
+t("tout l'alphabet porte push 0 et tenue normal (" + NEUTRES_X13.length + " écarts)",
+  NEUTRES_X13.length === 0);
+
+/* -- Figures illégales, fabriquées exprès (doctrine bloc.js). */
+t("^^^C illisible : la garde s'arrête à deux carets", F.lireAccord("^^^C") === null);
+t("C.... illisible : quatre points ne sont pas un marqueur", F.lireAccord("C....") === null);
+t("^ seul illisible", F.lireAccord("^") === null);
+t("... seul illisible", F.lireAccord("...") === null);
+t("^ C illisible : un espace après le caret n'est pas une anticipation", F.lireAccord("^ C") === null);
+t("^H7 illisible : le décapage ne rattrape pas une fondamentale fausse", F.lireAccord("^H7") === null);
+
+/* -- Raccord avec lireBoucle : les marqueurs traversent le parseur de grille,
+      et le point ISOLÉ reste une prolongation (PROLONGE = /^[_.]$/). */
+const bX13 = F.lireBoucle("^C7 | Cmaj7..", 4);
+t("la boucle accepte les marqueurs", !bX13.erreur);
+t("la boucle porte push jusqu'à l'accord", !bX13.erreur && bX13.mesures[0][0].push === 1);
+eq("la boucle porte tenue jusqu'à l'accord", bX13.erreur ? null : bX13.mesures[1][0].tenue, "frappe");
+const bProl = F.lireBoucle("C . . .", 4);
+t("non-régression : un point isolé reste une prolongation, pas un marqueur",
+  !bProl.erreur && bProl.mesures[0].length === 4 && bProl.mesures[0][0] === bProl.mesures[0][3]);
+
 
 /* ------------------------------------------------------------------
    3. Parseur de boucle — bases

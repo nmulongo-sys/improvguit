@@ -654,10 +654,39 @@ function chercherQualite(suffixe){
   return null;
 }
 
-/* "Cm(maj7)", "A7(9)", "Bbm7b5" -> {sym, pc, iv, notes} ; null si illisible */
+/* "Cm(maj7)", "A7(9)", "Bbm7b5" -> {sym, pc, iv, notes, push, tenue} ; null si illisible
+
+   X13 — les marqueurs de RESTITUTION se portent sur le symbole d'accord, jamais
+   dans la grille rythmique. C'est ce qui permet aux versions rock, funk, jazz et
+   reggae d'un titre de partager exactement la même grille :
+
+     ^C     anticipation de croche  -> l'accord sonne push8 ticks avant son temps
+     ^^C    anticipation de double  -> push16 avant
+     C.     silence : l'accord est marqué puis l'accompagnement se tait
+     C..    frappe  : un coup sec, sans tenue
+     C...   tenue   : l'accord est tenu, l'accompagnement s'efface
+
+   Le « où » est ce marqueur ; le « combien » (push8 / push16, en ticks à 120 par
+   temps) est un champ de profil de style, et n'a rien à faire ici.
+
+   Le décapage précède le regex, et il est sûr par construction : aucun alias de
+   QUALITES ne commence par « ^ » ni ne se termine par « . » — c'est asserté au
+   banc, pas supposé. Un point ISOLÉ reste une prolongation de mesure : il est
+   intercepté par PROLONGE dans lireBoucle() avant d'arriver jusqu'ici. */
 function lireAccord(txt){
-  const s = String(txt).trim();
+  let s = String(txt).trim();
   if(!s) return null;
+  let push = 0;
+  while(s.charAt(0) === "^" && push < 2){ push++; s = s.slice(1); }
+  let tenue = "normal";
+  const pts = s.match(/(\.{1,3})$/);
+  if(pts){
+    tenue = pts[1].length === 1 ? "silence" : pts[1].length === 2 ? "frappe" : "tenue";
+    s = s.slice(0, pts.index);
+  }
+  /* pas de garde « chaîne vidée » ici : le regex ci-dessous exige une lettre
+     A-G, donc « ^ » ou « ... » seuls repartent en null de toute façon. Une
+     garde de plus serait du code qu'aucune assertion ne peut faire rougir. */
   const m = s.match(/^([A-Ga-g])([#b]?)(.*)$/);
   if(!m) return null;
   const pc = pcDepuisNom(m[1], m[2]);
@@ -672,7 +701,9 @@ function lireAccord(txt){
     sym: m[1].toUpperCase() + m[2] + suffixe,
     pc: pc,
     iv: iv,
-    notes: notes.filter(function(v,i,a){ return a.indexOf(v) === i; })
+    notes: notes.filter(function(v,i,a){ return a.indexOf(v) === i; }),
+    push: push,
+    tenue: tenue
   };
 }
 
