@@ -3,7 +3,7 @@
 Entraîneur d'improvisation à la guitare, organisé en grades : à chaque grade, une seule variable est libre. Fichier HTML unique, hors ligne, pensé pour cinq minutes par jour sur téléphone.
 
 **En ligne** : https://nmulongo-sys.github.io/improvguit/
-**Statut** : révision du 2026-08-18 • fichier unique `index.html`, aucune dépendance externe.
+**Statut** : révision du 2026-08-22 • fichier unique `index.html`, aucune dépendance externe.
 
 ## Principe
 
@@ -103,7 +103,7 @@ Fichier unique, sections numérotées dans le `<script>` :
 
 1. **Théorie** — `NOMS`/`FR`/`DEGRE` (12 classes de hauteur), table `QUALITES` (alias → intervalles), `ALIAS` trié par longueur décroissante pour apparier d'abord le suffixe le plus long. `lireAccord()` renvoie `{sym, pc, iv, notes}` ou `null`, avec un repli qui retire les parenthèses. `lireBoucle(texte, battues)` renvoie `{mesures}` ou `{erreur}` : jamais d'exception, toute saisie illisible remonte un message. Le second argument sert au plafond d'emplacements.
 2. **Modèle de données** — une boucle est un **tableau de mesures**, chaque mesure un tableau d'emplacements. Les accords tenus — sur plusieurs mesures (`*4`, `%`) comme à l'intérieur d'une mesure (`_`) — partagent **la même référence d'objet** : c'est cette identité qui distingue un accord tenu d'un accord rejoué, pour l'affichage comme pour la nappe audio. Trois fonctions en dépendent (`construireTimeline`, `dureeAccord`, `poidsNotes`) et aucune n'a besoin de connaître la notation.
-3. **Persistance** — `localStorage`, clé `improvguit.v2`, schéma `{grade, saisie, battues, tempo, zone, duree, gamme, toniqueModele, subdivision, pad, bourdon, clic, miroir, coach, pupitre, morceau, modeleActif, tonalite, atelier, palier, atelierBoucle, atelierRenv, atelierJeu, saisieAvant}`. Lecture et écriture sous `try/catch`. Une clé absente d'une sauvegarde ancienne garde sa valeur par défaut. `etat.jeu` (régime pupitre courant) est délibérément **hors schéma** : on ne rouvre pas l'application en pupitre.
+3. **Persistance** — `localStorage`, clé `improvguit.v2`, schéma `{grade, saisie, battues, tempo, zone, duree, gamme, toniqueModele, subdivision, pad, bourdon, clic, miroir, coach, pupitre, morceau, modeleActif, tonalite, impro, imprHarmonie, imprRythme, imprMelodie, imprGap, imprSuite, imprManche, atelier, palier, atelierBoucle, atelierRenv, atelierJeu, saisieAvant}`. Lecture et écriture sous `try/catch`. Une clé absente d'une sauvegarde ancienne garde sa valeur par défaut. `etat.jeu` (régime pupitre courant) est délibérément **hors schéma** : on ne rouvre pas l'application en pupitre.
 4. **Ligne de temps** — `construireTimeline()` produit un temps par battue avec `{mesure, temps, fort, accord, debutAccord, zoneAtterrissage}`. Dans une mesure à plusieurs emplacements, l'accord d'un temps est `floor(temps × nEmplacements / battues)` ; quand il y a autant d'emplacements que de temps, la correspondance est l'identité — c'est ce qui rend `_` exact. `debutAccord` compare les références. `zoneAtterrissage` marque le dernier temps avant un changement : c'est la cible visuelle des grades ≥ 3.
 5. **Audio** — `AudioContext` partagé, ordonnanceur à anticipation (`setInterval` 25 ms, fenêtre 120 ms). Clic carré à quatre hauteurs (1760 Hz changement d'accord, 1320 Hz temps fort, 880 Hz autres, 660 Hz subdivision) ; les subdivisions sont générées dans l'ordonnanceur, la ligne de temps les ignore. Nappe en ondes triangulaires dont la durée vient de `dureeAccord()`, plafonnée à 12 s. **Bourdon** facultatif : fondamentale et octave sur la tonique modale, une octave sous la nappe, programmé une seule fois par tour de boucle et non par accord ; son extinction déborde sur l'attaque du tour suivant, qui la recouvre. `arreter()` ferme le gain maître sur 20 ms : sans cela, clics et nappes déjà programmés continuent de sonner après l'arrêt, jusqu'à deux tiers de temps avec les subdivisions. La synchro visuelle dépile une file `{i, t}` en `requestAnimationFrame` contre `ctx.currentTime` — jamais `setTimeout`.
 6. **Calcul d'affichage** — `marques()` retourne `classe de hauteur → {couleur, étiquette, halo, petit}` selon le mode du grade. Point unique où la pédagogie touche le rendu ; ajouter un grade = ajouter un mode ici et une branche dans `rendreConsigne()`. La tonique dont dépendent la gamme dessinée, le texte de la consigne et le bourdon vient d'une source unique, `toniqueModale()` : la fondamentale du premier accord de la boucle.
@@ -120,7 +120,17 @@ Fichier unique, sections numérotées dans le `<script>` :
     - **Tonique de travail** : `toniqueAtelier()` renvoie `etat.toniqueModele`, celle du sélecteur. C'est la même des deux côtés — grille posée et lecture à la main. Changer de tonique en atelier réécrit la grille du palier.
     - **Enchaîner au plus près** : le drapeau `proche` (A5 et au-delà) fait passer le choix de forme par `formeProche()`, qui retient, parmi les renversements et jeux de cordes que le palier autorise, celle dont le centre est le plus proche de la précédente. Le **jeu de cordes garde la priorité** : `PENALITE_JEU = 6` cases dans le score, on ne le quitte que si le voyage économisé dépasse ce seuil. Le sélecteur « Cordes » pose donc la priorité, le moteur y obéit. La **fenêtre affichée** entre dans le choix — une forme qu'on ne voit pas ne sert à rien —, avec repli sur tout le manche si elle n'offre rien. Départage stable par case la plus basse puis renversement le plus bas : deux formes à égalité ne doivent pas clignoter d'un rendu à l'autre.
     - **`formeMemo`** : `triadeAtelier()` est appelée **trois fois par rendu** (manche, barre, consigne). Sans mémoire, la forme choisie au plus près se déplacerait à chaque appel. La mémoire est indexée par accord et par réglage, et `oublierFormeAtelier()` la vide partout où la chaîne doit repartir : changement de palier, de grille, de tonique, de jeu de cordes, de fenêtre.
-14. **Interface** — délégation d'événements, aucun cadre externe.
+14. **Interface** — délégation d'événements, aucun cadre externe. Une table unique, `BASCULES`, relie l'identifiant d'un interrupteur à sa clé d'état ; elle était écrite deux fois — dans `remplirSelects()` et dans `brancher()` — et une liste dupliquée diverge en silence.
+15. **Impro — la démonstration jouée** — le coach *dit* ce qu'il faudrait jouer ; cette couche le *joue*. Elle n'est pas un second cerveau : `cheminCoach()` livrait déjà une suite de hauteurs **orientées** (`{pc, ord, h}`), c'est-à-dire la matière d'une phrase — il lui manquait un rythme, un registre et une voix. **Ajouter une consigne au coach étend donc la démonstration sans une ligne de plus ici.**
+    - **Trois couches, coupables séparément**, et ce sont trois questions posées à la même note : *ai-je le droit* (harmonie), *quand* (rythme), *pourquoi celle-là* (mélodie). ⚑ **Une couche coupée ne se tait pas : elle produit la version pauvre.** Harmonie coupée, le réservoir tombe à la gamme seule et les rendez-vous — temps fort, `zoneAtterrissage` — ne sont plus tenus : on entend la ligne passer *à côté* du changement d'accord. Rythme coupé, une note par temps, toutes égales : la ligne devient un exercice de gamme, juste et sans discours. Mélodie coupée, les hauteurs légales sont tirées au hasard : des notes justes qui ne racontent rien. Les trois coupées d'un coup donnent le témoin : si ça sonne bien, le générateur ne fait rien.
+    - **L'ordre des trois n'est pas décoratif.** Le rythme passe **en premier** parce qu'il fixe le *nombre* de notes à trouver : une figure mélodique de trois pas ne se plaque pas sur un rythme qui demande sept attaques ; on tire la cellule, puis on remplit en bouclant le geste.
+    - **Le registre se décide une fois**, au départ de la phrase, puis se suit par proximité (`versMidi`). Le recalculer note à note ferait descendre une « montée » — les classes de hauteur sont modulo 12, et c'est exactement la faute que `deroulerChemin()` a déjà eu à corriger sur le manche.
+    - **La démo se bride au grade** : `DENSITE[grade]` plafonne les attaques par mesure et `reservoirImpro()` suit `grade().mode`. À G0 elle pose l'ancrage et le laisse sonner ; à G2 elle ne sort pas de la cellule. Même principe que `marques()` et que les paliers : une seule variable s'ouvre à la fois. La démo est le modèle exact de ce qui est demandé, pas la vitrine de ce que le moteur sait faire.
+    - **Cycle démo + gap + démo**, cadencé **à la mesure** : `imprGap = 4` vaut quatre mesures quelle que soit la boucle — sur une boucle de deux, le gap franchit deux tours, et c'est la convention du trade fours. ⚑ **Pendant le gap, seule cette couche se tait** : nappe, bourdon, clic, grille et coach continuent, sinon le gap n'est pas un tour de parole mais une panne. On ne touche jamais au maître ; on ne programme simplement aucune note. Les blocs de démo vont **par paires** en mode *reprise* (la phrase revient une fois après le gap : appel à imiter) et sont neufs à chaque bloc en mode *échange* (trade fours). « Selon le grade » bascule à G7, qui s'appelle Discours et parle déjà de question et de réponse.
+    - **Une quatrième voix**, distincte de la nappe, du bourdon et du clic — sans quoi la ligne se noie dans son propre fond. Corde pincée : deux sources légèrement désaccordées et un passe-bas qui **descend avec l'enveloppe**, car une hauteur au timbre constant s'entend comme un test auditif. Registre MIDI 57-81, au-dessus de la nappe (48-64) et du bourdon (36-48) : trois étages qui ne se marchent pas dessus. Tout passe par `maitre` et jamais par `ctx.destination` — c'est ce qui fait qu'`arreter()` éteint aussi la démo, sans une ligne de plus.
+    - **Le manche pendant la démo** : la figure du coach reste affichée, et un halo (`#imprHalo`) la suit note à note. Les deux ne disent pas la même chose — la figure est le geste, le halo est l'endroit où le doigt se pose *maintenant*. Le halo se dépile contre `ctx.currentTime`, comme la synchro des temps : il suit la note **entendue**, pas la note programmée, qui a jusqu'à 120 ms d'avance.
+    - ⭐ **L'aléa est injectable** — `poserAlea()`, générateur `graine()` en xorshift32. Ce n'est pas une commodité : un générateur qui appelle `Math.random()` en dur n'est **pas vérifiable**, et chaque assertion du banc passerait des deux côtés. `tirerConsigne()` est passé par la même porte.
+    - **Le vocabulaire rythmique embarqué est minimal et de bien commun** — noire, silence, blanche, croches, croche pointée-double, contretemps, doubles, triolet, chabada, silence ternaire. Les relevés sous droits ne sont pas ici : ils vivent dans `corpus/grooves.json`, côté portail, derrière Access. **Le moteur connaît la forme d'une figure ; le corpus privé n'ajoute pas une capacité, il ajoute du répertoire.**
 
 Conventions de couleur, appliquées partout : **laiton** = fondamentale ou note d'ancrage, **indigo** = autres notes d'accord, **vert** = septième, halo des notes mobiles et approches chromatiques, **gris** = notes de passage. Manche en bois sombre et frettes laiton, chrome en ardoise froide : l'instrument se distingue de l'interface.
 
@@ -135,9 +145,11 @@ npm install     # jsdom, seule dépendance, de développement uniquement
 npm test
 ```
 
-`test.js` charge `index.html` dans un DOM et le pilote comme un utilisateur. Couverture : parseur et plafond d'emplacements aux quatre métriques, token de prolongation et identité par référence, tenue par-dessus la barre, ligne de temps et durées d'accord, notes communes et mobiles, ancrage sur la tonique, substitut tritonique, ordonnanceur audio sur `AudioContext` factice (comptage et placement des clics, tenue et hauteur du bourdon, coupure du maître à l'arrêt), rendu des onze grades, modèles, réglages, saisie invalide, persistance, bulles pédagogiques (analyse, couverture des 132 combinaisons grade × note, renvois théorie ↔ exercice non orphelins, clics réels dans le DOM), absence de dépendance externe et de contenu pédagogique dans `index.html`.
+`test.js` charge `index.html` dans un DOM et le pilote comme un utilisateur. Couverture : parseur et plafond d'emplacements aux quatre métriques, token de prolongation et identité par référence, tenue par-dessus la barre, ligne de temps et durées d'accord, notes communes et mobiles, ancrage sur la tonique, substitut tritonique, ordonnanceur audio sur `AudioContext` factice (comptage et placement des clics, tenue et hauteur du bourdon, coupure du maître à l'arrêt), rendu des onze grades, modèles, réglages, saisie invalide, persistance, bulles pédagogiques (analyse, couverture des 132 combinaisons grade × note, renvois théorie ↔ exercice non orphelins, clics réels dans le DOM), absence de dépendance externe et de contenu pédagogique dans `index.html`, et **couche impro** : déterminisme à graine égale, réservoir tenu sur un accord hostile (`Cmaj7 | F#7`), piliers aux rendez-vous, chaque couche coupée qui **change** la sortie, mesure exactement remplie aux quatre métriques, aucune valeur binaire en subdivision ternaire, jamais deux attaques au même instant, bridage au grade (G0 sur l'ancrage seul, G2 dans la cellule), registre et cohérence hauteur/classe sur les onze grades, cycle démo/gap et indices de phrase en reprise comme en échange, gap plus long que la boucle, neuf figures fabriquées dont illégales (`C5`, `Dsus4`, `Bdim7`, boucle d'un seul accord, 32 mesures, boucle vide), gap qui ne coupe que la démo et laisse le clic intact, silence en atelier, réglages persistés, halo du manche.
 
-**Le répertoire étant hors dépôt, les séries qui en dépendent sont ignorées s'il est absent** : un clone nu valide le moteur et l'interface (748 assertions) ; avec `repertoire.json` posé à côté, la vérification fiche par fiche s'ajoute — grille lisible, longueur annoncée, gamme connue, tonalité effectivement lue, absence du titre et de l'artiste dans `index.html` — pour 1 856 assertions sur les trente-huit fiches actuelles. Le test annonce lequel des deux régimes il a suivi.
+**Le répertoire étant hors dépôt, les séries qui en dépendent sont ignorées s'il est absent** : un clone nu valide le moteur et l'interface (**814 assertions**, dont 66 pour la couche impro) ; avec `repertoire.json` posé à côté, la vérification fiche par fiche s'ajoute — grille lisible, longueur annoncée, gamme connue, tonalité effectivement lue, absence du titre et de l'artiste dans `index.html` — soit 1 108 assertions de plus sur les trente-huit fiches actuelles. Le test annonce lequel des deux régimes il a suivi.
+
+Le double d'`AudioContext` tient **deux journaux séparés**, `__rampes` pour le gain et `__freq` pour la fréquence. La voix de la démo balaie son filtre ; si les deux paramètres écrivaient au même endroit, une rampe de 9 000 Hz serait comptée comme un niveau et la série du bourdon — qui lit le maximum des rampes de gain — rougirait pour une raison fausse.
 
 **Contre-épreuve obligatoire.** Une série de tests nouvelle doit être lancée contre l'`index.html` **d'avant** le correctif et y échouer. Une assertion qui passe des deux côtés ne teste rien.
 
@@ -149,6 +161,92 @@ npm test
 > les décisions qui les ont produits, elles, n'ont pas été consignées et ne sont pas
 > reconstituées ici. Le journal est en ajout seul : mieux vaut un trou visible qu'une
 > continuité inventée.
+
+### 2026-08-22 — la couche impro : le coach ne dit plus, il joue
+
+**Ce que ça change.** Le moteur savait déjà lire une grille, savoir quelle note vaut quoi à
+chaque temps, choisir un geste mélodique et le placer sur le manche. Il ne savait pas le **jouer**.
+`cheminCoach()` livrait `{pas:[{pc, ord, h}]}` — une suite de hauteurs orientées, c'est-à-dire la
+matière d'une phrase. Il lui manquait un rythme, un registre et une voix. C'est tout ce qu'ajoute
+la section 15 : **la démonstration est la restitution sonore de ce que le coach dit déjà.** Ajouter
+une consigne au coach étend donc la démo sans une ligne de plus.
+
+**Ce que je n'ai pas fait, et pourquoi.** Le premier réflexe était d'écrire un générateur autonome
+— sa grammaire de figures, ses règles de conduite, son propre choix de cibles. Ç'aurait été un
+second cerveau à côté du coach, et deux cerveaux divergent : le jour où l'un apprend une figure,
+l'autre l'ignore. `bloc.js` le dit déjà de lui-même à propos de `RHO_RANGS` — *un seuil dupliqué
+diverge en silence*. Le générateur ne connaît donc **aucun** type de figure que `cheminCoach()`
+ne connaisse pas ; il tire dans `GESTE_GRADE`, qui n'est qu'une liste de specs déjà valides.
+
+**La même règle a servi une seconde fois, sur un doublon préexistant.** La table
+`[["basPad","pad"], …]` était écrite en deux exemplaires, dans `remplirSelects()` et dans
+`brancher()`. Y ajouter cinq interrupteurs aurait reproduit la faute au lieu de la corriger : une
+seule `BASCULES`, deux lecteurs.
+
+**Une couche coupée ne se tait pas.** C'est la décision qui fait tout le reste. Harmonie coupée, le
+réservoir tombe à la gamme seule et les rendez-vous — temps fort, `zoneAtterrissage` — ne sont plus
+tenus : on **entend** la ligne passer à côté du changement d'accord. Rythme coupé, une note par
+temps, toutes égales. Mélodie coupée, tirage au hasard dans les notes légales. Les trois coupées
+d'un coup donnent une ligne volontairement laide, et c'est le témoin : si ça sonne bien, le
+générateur ne fait rien. La thèse du README — *libérer toutes les variables d'un coup ne produit
+pas de l'improvisation mais de l'errance* — cesse d'être une phrase et devient un interrupteur.
+
+**L'ordre des couches n'est pas décoratif.** Le rythme passe en premier parce qu'il fixe le
+*nombre* de notes à trouver. Une figure de trois pas ne se plaque pas sur un rythme qui demande
+sept attaques : on tire la cellule, puis on remplit en bouclant le geste. L'ordre inverse obligeait
+à rogner le geste, donc à le fausser.
+
+**Le registre se décide une fois.** `versMidi()` choisit une hauteur au départ de la phrase et la
+suit par proximité. Le recalculer à chaque note faisait descendre une « montée » : les classes de
+hauteur sont modulo 12, Do suivi de Ré monte de deux demi-tons ou descend de dix. C'est
+exactement la faute que `deroulerChemin()` avait déjà eu à corriger sur le manche, pour la même
+raison — elle méritait d'être reconnue plutôt que refaite.
+
+**Le gap ne coupe que la démo.** Nappe, bourdon, clic, grille et coach continuent pendant le gap.
+Sans eux, ce n'est pas un tour de parole, c'est une panne. On ne touche donc jamais au maître : on
+ne programme simplement aucune note. Le cycle est cadencé **à la mesure** — `imprGap = 4` vaut
+quatre mesures quelle que soit la boucle, et sur une boucle de deux le gap franchit deux tours.
+C'est la convention du trade fours, et c'est voulu. Les blocs vont par paires en mode *reprise*
+(la phrase revient une fois : appel à imiter) et sont neufs en mode *échange*.
+
+**L'aléa est injectable, et c'est la décision structurante du banc.** `poserAlea()` et un xorshift32
+de quinze lignes. Un générateur qui appelle `Math.random()` en dur n'est pas vérifiable : le banc
+ne pourrait affirmer ni qu'une couche coupée change la sortie, ni qu'aucune note ne sort du
+réservoir, ni que le gap est vide — chaque assertion passerait des deux côtés, donc ne testerait
+rien. `tirerConsigne()`, qui appelait `Math.random()` depuis la v6, est passé par la même porte.
+
+**Le banc et sa contre-épreuve.** 66 assertions neuves, 748 → **814** sur un clone nu. La série
+lancée contre l'`index.html` d'avant ne peut même pas se lier — `poserAlea is not defined` — ce qui
+est l'échec le plus net possible, mais un échec *par absence de symbole*, qui ne prouve pas que les
+assertions mordent. J'ai donc fabriqué quatre régressions délibérées sur le fichier neuf et vérifié
+que chacune rougit :
+
+| régression introduite | ce qui rougit |
+|---|---|
+| le pilier n'est plus imposé aux rendez-vous | *les temps forts portent un pilier* — 22 fautes sur 85 |
+| le gap ne fait plus taire la démo | **six** assertions, dont *pendant le gap : zéro note* (28 ≠ 0) |
+| le grade ne bride plus le réservoir | *G0 ne joue que l'ancrage* — 14 fautes sur 60 notes |
+| l'aléa redevient `Math.random` | *à graine égale, plan égal* |
+
+**Un défaut du banc trouvé en chemin.** Le double d'`AudioContext` ne donnait à `frequency` qu'un
+`{value:0}` : la voix de la démo, qui balaie son filtre, levait une `TypeError`. En lui donnant les
+méthodes d'`AudioParam` j'aurais fait écrire les rampes de fréquence dans `__rampes`, où la série du
+bourdon lit le **maximum des rampes de gain** — une rampe de 9 000 Hz aurait été comptée comme un
+niveau et le bourdon aurait rougi pour une raison fausse. Deux journaux séparés, `__rampes` et
+`__freq`.
+
+**Le coût, dit franchement.** `index.html` passe de 137 592 à **161 951 octets**, +17,7 %. C'était
+l'objection connue, et elle reste entière — mais c'est un coût de **taille**, pas de **correction** :
+une dette de duplication, elle, ne cesse jamais de courir. Le corpus sous droits ne suit pas : le
+vocabulaire rythmique embarqué est de bien commun (noire, croches, croche pointée-double,
+contretemps, triolet, chabada…), et les relevés restent dans `corpus/grooves.json`, côté portail,
+derrière Access. **Le moteur connaît la forme d'une figure ; le corpus privé n'ajoute pas une
+capacité, il ajoute du répertoire.**
+
+**Ce qui reste ouvert.** Le chargeur du corpus privé n'est pas écrit : il devra passer par le même
+`fetch` que `repertoire.json`, dont l'appel est aujourd'hui mort dans les deux copies — à traiter
+**une fois pour les deux**, pas deux fois. Et la vitrine publique tournera sans corpus : à dire dans
+ce README, sinon un visiteur croira à une panne.
 
 ### 2026-08-18 — geler l'affichage à la pause, grilles de palier, enchaîner au plus près
 

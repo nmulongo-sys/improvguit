@@ -478,17 +478,26 @@ t("la sauvegarde ne porte pas les mesures analysées", !("mesures" in sauve));
 win.eval(`
   window.__evts = [];
   window.__rampes = [];
+  window.__freq = [];
   window.__filtres = [];
-  function __noeud(){
-    const g = {
+  function __param(journal, memo){
+    const p = {
       value:0,
-      setValueAtTime:function(v,t){ g.value = v; window.__rampes.push(["set",v,t]); },
-      exponentialRampToValueAtTime:function(v,t){ window.__rampes.push(["exp",v,t]); },
-      linearRampToValueAtTime:function(v,t){ window.__rampes.push(["lin",v,t]); },
-      cancelScheduledValues:function(t){ window.__rampes.push(["annule",null,t]); }
+      setValueAtTime:function(v,t){ p.value = v; window[journal].push(["set",v,t]); },
+      exponentialRampToValueAtTime:function(v,t){ window[journal].push(["exp",v,t]); },
+      linearRampToValueAtTime:function(v,t){ window[journal].push(["lin",v,t]); },
+      cancelScheduledValues:function(t){ window[journal].push(["annule",null,t]); }
     };
+    return p;
+  }
+  /* Deux journaux SÉPARÉS : le gain et la fréquence. La voix de la démo
+     balaie son filtre (exponentialRampToValueAtTime sur frequency) ; si
+     les deux paramètres écrivaient dans __rampes, une rampe de 9 000 Hz
+     serait comptée comme un niveau et la série du bourdon, qui lit le
+     maximum des rampes de gain, rougirait pour une bonne raison fausse. */
+  function __noeud(){
     return {
-      gain:g, frequency:{ value:0 },
+      gain:__param("__rampes"), frequency:__param("__freq"),
       type:"", connect:function(){}, start:function(){}, stop:function(){}
     };
   }
@@ -518,7 +527,7 @@ win.eval(`
 
 function jouerUnTour(txt, battues, sub, tempo, opts) {
   opts = opts || {};
-  win.eval("window.__evts = []; window.__rampes = []; window.__filtres = [];");
+  win.eval("window.__evts = []; window.__rampes = []; window.__freq = []; window.__filtres = [];");
   F.etat.battues = battues;
   F.etat.tempo = tempo || 60;
   F.etat.subdivision = sub;
@@ -1648,6 +1657,542 @@ eq("et se reeteint au retour",
   F.majVoie();
   F.appliquerSaisie(memoSaisie);
 })();
+
+/* ------------------------------------------------------------------
+   19. IMPRO — la démonstration jouée
+   ------------------------------------------------------------------
+   Doctrine bloc.js : le moteur s'éprouve sur des figures FABRIQUÉES,
+   y compris illégales. Aucun corpus réel ne contient un F#7 posé
+   contre une gamme de Do, ni une boucle d'un seul accord sans tierce,
+   ni un gap plus long que la grille. C'est pourtant là que le
+   générateur casse.
+   Tout repose sur poserAlea() : sans graine, aucune des lignes qui
+   suivent ne pourrait affirmer quoi que ce soit — elles passeraient
+   des deux côtés, donc ne testeraient rien.
+   ------------------------------------------------------------------ */
+const I = win.eval("({poserAlea, graine, FIGURES, DENSITE, GESTE_GRADE," +
+  " reservoirImpro, gesteImpro, tirerRythme, varierRythme, planifierBloc," +
+  " etatImpro, suiteImpro, versMidi, plusProche, reinitImpro, majImpro," +
+  " peindreImpro, MIDI_BAS, MIDI_HAUT, voixImpro, imprPasser, alea," +
+  " get imprMesure(){return imprMesure}, set imprMesure(v){imprMesure=v}," +
+  " get fileImpro(){return fileImpro}})");
+
+(function () {
+  const memo = {
+    saisie: F.etat.saisie, battues: F.etat.battues, grade: F.etat.grade,
+    gamme: F.etat.gamme, sub: F.etat.subdivision, coach: F.coach.courant
+  };
+  /* poser une boucle et sa timeline, comme le fait l'app */
+  function poser(txt, battues, grade, gamme) {
+    F.etat.battues = battues;
+    F.etat.grade = grade;
+    F.etat.gamme = gamme || "majeur";
+    F.etat.subdivision = 1;
+    F.etat.tonalite = "";
+    F.etat.atelier = false;
+    F.coach.courant = null;              /* pas de consigne : geste de repli */
+    const r = F.lireBoucle(txt, battues);
+    F.etat.mesures = r.mesures;
+    F.construireTimeline();
+  }
+  function couches(h, r, m) {
+    F.etat.impro = true;
+    F.etat.imprHarmonie = h; F.etat.imprRythme = r; F.etat.imprMelodie = m;
+  }
+  /* toutes les notes d'un plan, dans l'ordre de lecture */
+  function notesDe(plan) {
+    const cles = Object.keys(plan).map(Number).sort(function (a, b) { return a - b; });
+    const out = [];
+    cles.forEach(function (k) {
+      plan[k].slice().sort(function (a, b) { return a.off - b.off; })
+        .forEach(function (n) { out.push({ rel: k, off: n.off, pc: n.pc, midi: n.midi, duree: n.duree, rdv: n.rdv }); });
+    });
+    return out;
+  }
+  function planAvec(seed, txt, battues, grade, gamme, h, r, m, nMes) {
+    poser(txt, battues, grade, gamme);
+    couches(h, r, m);
+    I.poserAlea(I.graine(seed));
+    return I.planifierBloc(0, nMes || 2);
+  }
+
+  /* --- outils élémentaires ------------------------------------------ */
+  eq("plusProche : Fa# entre Do et Sol choisit Sol", I.plusProche(6, [0, 7]), 7);
+  eq("plusProche : liste vide rend la note telle quelle", I.plusProche(3, []), 3);
+  t("versMidi reste dans le registre de la démo",
+    [0, 3, 6, 9, 11].every(function (pc) {
+      const m = I.versMidi(pc, 69);
+      return m >= I.MIDI_BAS && m <= I.MIDI_HAUT;
+    }));
+  eq("versMidi rend bien la classe de hauteur demandée", I.versMidi(0, 70) % 12, 0);
+  (function () {
+    let faux = 0;
+    for (let pc = 0; pc < 12; pc++) {
+      for (let ref = I.MIDI_BAS; ref <= I.MIDI_HAUT; ref++) {
+        const obt = I.versMidi(pc, ref);
+        let mieux = null;
+        for (let m = I.MIDI_BAS; m <= I.MIDI_HAUT; m++) {
+          if (((m % 12) + 12) % 12 !== pc) continue;
+          if (mieux === null || Math.abs(m - ref) < Math.abs(mieux - ref)) mieux = m;
+        }
+        if (obt !== mieux) faux++;
+      }
+    }
+    eq("versMidi prend toujours l'octave la plus proche du registre", faux, 0);
+  })();
+
+  /* --- déterminisme : sans lui, rien d'autre ne tient --------------- */
+  const p1 = planAvec(1234, "Am7 | D7", 4, 4, "majeur", true, true, true, 4);
+  const p2 = planAvec(1234, "Am7 | D7", 4, 4, "majeur", true, true, true, 4);
+  eq("à graine égale, plan égal", JSON.stringify(p1), JSON.stringify(p2));
+  const p3 = planAvec(999, "Am7 | D7", 4, 4, "majeur", true, true, true, 4);
+  t("à graine différente, plan différent", JSON.stringify(p1) !== JSON.stringify(p3));
+
+  /* --- le réservoir : accord hostile, gamme qui ne le contient pas --- */
+  (function () {
+    /* F#7 contre une tonique de Do : rien de commun ou presque. Aucun
+       corpus réel ne pose ça ; c'est exactement pour ça qu'on le pose. */
+    let hors = 0, total = 0;
+    for (let s = 0; s < 40; s++) {
+      const plan = planAvec(s, "Cmaj7 | F#7", 4, 3, "majeur", true, true, true, 2);
+      const acc = F.accordsUniques(F.etat.mesures);
+      const permis = [];
+      acc.forEach(function (a) { a.notes.forEach(function (pc) { if (permis.indexOf(pc) < 0) permis.push(pc); }); });
+      notesDe(plan).forEach(function (n) { total++; if (permis.indexOf(n.pc) < 0) hors++; });
+    }
+    t("G3, harmonie active : aucune note hors des notes d'accord (" + hors + "/" + total + ")", hors === 0 && total > 0);
+  })();
+
+  /* --- les piliers aux rendez-vous ---------------------------------- */
+  (function () {
+    let faux = 0, vus = 0;
+    for (let s = 0; s < 40; s++) {
+      const plan = planAvec(s, "Am7 | D7", 4, 4, "majeur", true, true, true, 2);
+      notesDe(plan).forEach(function (n) {
+        if (!n.rdv) return;
+        const b = F.timeline[n.rel % F.timeline.length];
+        const notes = b && b.accord ? b.accord.notes : [];
+        const gam = F.GAMMES.filter(function (g) { return g.id === "majeur"; })[0].iv
+          .map(function (x) { return (F.toniqueModale(F.etat.mesures, 0) + x) % 12; });
+        /* le pilier est une note d'accord — sauf si l'accord n'en offre
+           aucune dans le réservoir du grade, cas que le grade gamme peut
+           produire sur un accord entièrement hors gamme */
+        const offerts = notes.filter(function (pc) { return gam.indexOf(pc) >= 0; });
+        vus++;
+        if (offerts.length && offerts.indexOf(n.pc) < 0) faux++;
+      });
+    }
+    t("G4 : aux temps forts et aux zones d'atterrissage, la note est un pilier (" + faux + " fautes sur " + vus + ")",
+      vus > 0 && faux === 0);
+  })();
+
+  /* --- COUCHE HARMONIE COUPÉE : la sortie doit CHANGER --------------
+     Une assertion qui passe des deux côtés ne teste rien. On mesure donc
+     ce que la coupure produit, pas seulement qu'elle est acceptée. */
+  (function () {
+    const avec = planAvec(77, "Cmaj7 | F#7", 4, 3, "majeur", true, true, true, 2);
+    const sans = planAvec(77, "Cmaj7 | F#7", 4, 3, "majeur", false, true, true, 2);
+    t("harmonie coupée : le plan change", JSON.stringify(avec) !== JSON.stringify(sans));
+    let hors = 0, total = 0;
+    for (let s = 0; s < 40; s++) {
+      /* mélodie coupée elle aussi : le geste du coach vise des notes
+         d'accord par construction, il masquerait ce qu'on mesure ici. */
+      const plan = planAvec(s, "Cmaj7 | F#7", 4, 3, "majeur", false, true, false, 2);
+      const acc = F.accordsUniques(F.etat.mesures);
+      const permis = [];
+      acc.forEach(function (a) { a.notes.forEach(function (pc) { if (permis.indexOf(pc) < 0) permis.push(pc); }); });
+      notesDe(plan).forEach(function (n) { total++; if (permis.indexOf(n.pc) < 0) hors++; });
+    }
+    /* c'est le SYMÉTRIQUE de l'assertion précédente : harmonie coupée, la
+       ligne DOIT passer à côté de l'accord. Si elle n'y passait jamais, la
+       couche ne ferait rien. */
+    t("harmonie coupée : la ligne passe à côté de l'accord (" + hors + "/" + total + ")", hors > 0);
+    /* symétrique du contrôle des piliers : harmonie coupée, les rendez-vous
+       restent MARQUÉS (c'est la timeline qui les porte) mais ne sont plus
+       TENUS. Si aucun rendez-vous ne tombait à côté, la couche ne ferait
+       rien et l'assertion des piliers passerait des deux côtés. */
+    let rdv = 0, rate = 0;
+    for (let s = 0; s < 40; s++) {
+      const plan = planAvec(s, "Am7 | D7", 4, 4, "majeur", false, true, false, 2);
+      notesDe(plan).forEach(function (n) {
+        if (!n.rdv) return;
+        rdv++;
+        const b = F.timeline[n.rel % F.timeline.length];
+        const notes = b && b.accord ? b.accord.notes : [];
+        if (notes.indexOf(n.pc) < 0) rate++;
+      });
+    }
+    t("harmonie coupée : les rendez-vous ne sont plus tenus (" + rate + "/" + rdv + ")",
+      rdv > 0 && rate > 0);
+  })();
+
+  /* --- COUCHE RYTHME -------------------------------------------------- */
+  (function () {
+    for (let B = 2; B <= 6; B++) {
+      if (B === 5) continue;
+      let faux = 0;
+      for (let s = 0; s < 30; s++) {
+        F.etat.subdivision = 1;
+        F.etat.imprRythme = true;
+        I.poserAlea(I.graine(s * 31 + B));
+        const r = I.tirerRythme(B, 6, null);
+        const somme = r.reduce(function (a, x) { return a + Math.abs(x); }, 0);
+        if (Math.abs(somme - B) > 1e-6) faux++;
+        if (!r.some(function (x) { return x > 0; })) faux++;
+      }
+      eq("rythme : la mesure à " + B + " temps est exactement remplie", faux, 0);
+    }
+    /* ternaire : aucune figure binaire ne doit s'y glisser */
+    let binDansTern = 0;
+    for (let s = 0; s < 40; s++) {
+      F.etat.subdivision = 3;
+      F.etat.imprRythme = true;
+      I.poserAlea(I.graine(s));
+      I.tirerRythme(4, 6, null).forEach(function (x) {
+        const v = Math.abs(x);
+        const entier = Math.abs(v - Math.round(v)) < 1e-9;
+        const tiers = Math.abs(v * 3 - Math.round(v * 3)) < 1e-9;
+        if (!entier && !tiers) binDansTern++;
+      });
+    }
+    F.etat.subdivision = 1;
+    eq("subdivision ternaire : aucune valeur binaire dans la cellule", binDansTern, 0);
+
+    /* rythme coupé : une note par temps, toutes égales */
+    const plat = planAvec(5, "Am7 | D7", 4, 4, "majeur", true, false, true, 2);
+    const nplat = notesDe(plat);
+    eq("rythme coupé : une attaque par temps", nplat.length, 8);
+    t("rythme coupé : toutes les durées valent un temps",
+      nplat.every(function (n) { return n.duree === 1 && n.off === 0; }));
+    const vif = planAvec(5, "Am7 | D7", 4, 4, "majeur", true, true, true, 2);
+    t("rythme coupé : le plan change", JSON.stringify(plat) !== JSON.stringify(vif));
+
+    /* jamais deux attaques au même instant */
+    let collision = 0;
+    for (let s = 0; s < 40; s++) {
+      const plan = planAvec(s, "Am7 | D7 | Gmaj7 | C7", 4, 6, "majeur", true, true, true, 4);
+      Object.keys(plan).forEach(function (k) {
+        const offs = plan[k].map(function (n) { return Math.round(n.off * 1000); });
+        offs.forEach(function (o, i) { if (offs.indexOf(o) !== i) collision++; });
+      });
+    }
+    eq("jamais deux attaques au même instant", collision, 0);
+
+    /* la cellule se répète : c'est le principe de G1 */
+    let repetees = 0, blocs = 0;
+    for (let s = 0; s < 60; s++) {
+      const plan = planAvec(s, "Am7 | D7", 4, 4, "majeur", true, true, true, 2);
+      const m0 = [], m1 = [];
+      Object.keys(plan).map(Number).forEach(function (k) {
+        (k < 4 ? m0 : m1).push(k + ":" + plan[k].map(function (n) { return n.off + "/" + n.duree; }).join(","));
+      });
+      blocs++;
+      if (m0.map(function (x) { return x.replace(/^\d+:/, ""); }).join("|") ===
+        m1.map(function (x) { return x.replace(/^\d+:/, ""); }).join("|")) repetees++;
+    }
+    t("la cellule rythmique est souvent reprise à la mesure suivante (" + repetees + "/" + blocs + ")",
+      repetees > blocs * 0.25);
+
+    /* varierRythme change exactement une valeur, et ne vide jamais la mesure */
+    I.poserAlea(I.graine(3));
+    const base = [1, 1, 1, 1];
+    const varie = I.varierRythme(base);
+    let diff = 0;
+    for (let i = 0; i < base.length; i++) if (base[i] !== varie[i]) diff++;
+    eq("varierRythme ne touche qu'une valeur", diff, 1);
+    t("varierRythme laisse au moins une attaque",
+      I.varierRythme([1, -1, -1, -1]).some(function (x) { return x > 0; }));
+  })();
+
+  /* --- COUCHE MÉLODIE ------------------------------------------------- */
+  (function () {
+    /* harmonie coupée pour qu'aucun pilier ne réécrive la note : le plan
+       doit alors suivre EXACTEMENT le geste, en boucle. */
+    poser("Am7 | D7", 4, 4, "majeur");
+    couches(false, false, true);
+    I.poserAlea(I.graine(21));
+    const pas = I.gesteImpro();
+    I.poserAlea(I.graine(21));
+    const plan = I.planifierBloc(0, 2);
+    const suite = notesDe(plan).map(function (n) { return n.pc; });
+    const attendu = suite.map(function (_, k) { return pas[k % pas.length].pc; });
+    t("mélodie active : le plan suit le geste du coach, note à note",
+      pas && pas.length && suite.join(",") === attendu.join(","));
+
+    const avec = planAvec(42, "Am7 | D7", 4, 4, "majeur", true, true, true, 2);
+    const sans = planAvec(42, "Am7 | D7", 4, 4, "majeur", true, true, false, 2);
+    t("mélodie coupée : le plan change", JSON.stringify(avec) !== JSON.stringify(sans));
+
+    /* mélodie coupée, le contour disparaît : sur beaucoup de tirages, la
+       suite des hauteurs cesse d'être orientée */
+    let montantes = 0, essais = 0;
+    for (let s = 0; s < 60; s++) {
+      const p = planAvec(s, "Am7 | D7", 4, 4, "majeur", false, false, false, 2);
+      const m = notesDe(p).map(function (n) { return n.midi; });
+      essais++;
+      let croit = true;
+      for (let i = 1; i < m.length; i++) if (m[i] < m[i - 1]) croit = false;
+      if (croit) montantes++;
+    }
+    t("mélodie coupée : le contour n'est plus orienté (" + montantes + "/" + essais + ")", montantes < essais);
+  })();
+
+  /* --- LE BRIDAGE AU GRADE -------------------------------------------- */
+  (function () {
+    let fautes = 0, notes0 = 0;
+    for (let s = 0; s < 30; s++) {
+      const plan = planAvec(s, "Am7 | D7", 4, 0, "majeur", true, true, true, 2);
+      const ton = F.toniqueModale(F.etat.mesures, 0);
+      const ns = notesDe(plan);
+      notes0 += ns.length;
+      ns.forEach(function (n) { if (n.pc !== ton) fautes++; });
+      /* G0 : au plus une attaque par mesure */
+      const parMes = [0, 0];
+      ns.forEach(function (n) { parMes[Math.floor(n.rel / 4)]++; });
+      if (parMes[0] > 1 || parMes[1] > 1) fautes++;
+    }
+    t("G0 : la démo ne joue que l'ancrage, une note par mesure (" + fautes + " fautes, " + notes0 + " notes)",
+      fautes === 0 && notes0 > 0);
+
+    let horsCellule = 0;
+    for (let s = 0; s < 30; s++) {
+      const plan = planAvec(s, "Am7 | D7", 4, 2, "majeur", true, true, true, 2);
+      const cel = F.cellule(F.etat.mesures);
+      notesDe(plan).forEach(function (n) { if (cel.indexOf(n.pc) < 0) horsCellule++; });
+    }
+    eq("G2 : la démo ne sort pas de la cellule", horsCellule, 0);
+
+    let horsRegistre = 0, vus = 0;
+    for (let g = 0; g <= 10; g++) {
+      for (let s = 0; s < 10; s++) {
+        const plan = planAvec(s * 7 + g, "Am7 | D7 | Gmaj7 | C7", 4, g, "majeur", true, true, true, 2);
+        notesDe(plan).forEach(function (n) {
+          vus++;
+          if (n.midi < I.MIDI_BAS || n.midi > I.MIDI_HAUT) horsRegistre++;
+          if (((n.midi % 12) + 12) % 12 !== n.pc) horsRegistre++;
+        });
+      }
+    }
+    t("les onze grades : registre tenu et hauteur cohérente (" + horsRegistre + " fautes sur " + vus + ")",
+      vus > 0 && horsRegistre === 0);
+  })();
+
+  /* --- LE CYCLE DÉMO + GAP + DÉMO ------------------------------------- */
+  (function () {
+    poser("Am7 | D7", 4, 4, "majeur");
+    F.etat.imprGap = 0;
+    t("gap nul : la démo est continue",
+      [0, 1, 2, 3, 7, 40].every(function (m) { return I.etatImpro(m).demo; }));
+
+    F.etat.imprGap = 2;
+    F.etat.imprSuite = "reprise";
+    const phases = [];
+    for (let m = 0; m < 12; m++) phases.push(I.etatImpro(m).demo ? "D" : "_");
+    eq("gap de 2 mesures : démo, gap, démo…", phases.join(""), "DD__DD__DD__");
+
+    const ph = [];
+    for (let m = 0; m < 24; m += 2) { const e = I.etatImpro(m); if (e.demo) ph.push(e.phrase); }
+    eq("reprise : la phrase revient une fois après le gap", ph.join(","), "0,0,1,1,2,2");
+
+    F.etat.imprSuite = "echange";
+    const ph2 = [];
+    for (let m = 0; m < 24; m += 2) { const e = I.etatImpro(m); if (e.demo) ph2.push(e.phrase); }
+    eq("échange : chaque bloc tire du neuf", ph2.join(","), "0,1,2,3,4,5");
+
+    /* « selon le grade » : imitation en bas, échange à partir de G7 */
+    F.etat.imprSuite = "auto";
+    F.etat.grade = 3; eq("auto sous G7 : reprise", I.suiteImpro(), "reprise");
+    F.etat.grade = 7; eq("auto à G7 : échange", I.suiteImpro(), "echange");
+    F.etat.grade = 4;
+
+    /* gap plus long que la boucle : deux tours de gap, et c'est voulu */
+    F.etat.imprGap = 8;
+    const longs = [];
+    for (let m = 0; m < 16; m++) longs.push(I.etatImpro(m).demo ? "D" : "_");
+    eq("gap de 8 mesures sur une boucle de 2 : le gap franchit les tours",
+      longs.join(""), "DDDDDDDD________");
+    F.etat.imprGap = 0;
+    F.etat.imprSuite = "auto";
+  })();
+
+  /* --- FIGURES ILLÉGALES OU EXTRÊMES ---------------------------------- */
+  (function () {
+    const cas = [
+      ["accord sans tierce", "C5 | C5", 4, 4],
+      ["boucle d'un seul accord", "Am7", 4, 3],
+      ["accord diminué contre une gamme majeure", "Bdim7 | Bdim7", 4, 4],
+      ["accord suspendu, aucune tierce à viser", "Dsus4 | G7sus4", 4, 3],
+      ["mesure à 3 temps", "Am | E7 | Am | E7", 3, 5],
+      ["mesure à 6 temps", "Am7 | D7", 6, 6],
+      ["quatre accords dans la mesure", "C G Am F | Dm G C C", 4, 5],
+      ["accords tenus par _", "Am7 _ _ _ | D7 _ _ _", 4, 4],
+      ["boucle très longue", new Array(32).fill("Am7").join(" | "), 4, 4]
+    ];
+    let casse = 0, vides = 0;
+    cas.forEach(function (c) {
+      for (let s = 0; s < 6; s++) {
+        try {
+          const plan = planAvec(s, c[1], c[2], c[3], "majeur", true, true, true, 2);
+          const ns = notesDe(plan);
+          if (!ns.length) vides++;
+          ns.forEach(function (n) {
+            if (!(n.midi >= I.MIDI_BAS && n.midi <= I.MIDI_HAUT)) casse++;
+            if (!(n.duree > 0)) casse++;
+            if (!(n.off >= 0 && n.off < 1)) casse++;
+          });
+        } catch (e) { casse++; }
+      }
+    });
+    eq("neuf figures fabriquées, dont illégales : rien ne casse", casse, 0);
+    eq("aucune n'est muette", vides, 0);
+
+    /* boucle vide : le générateur doit rendre un plan vide, pas lever */
+    let leve = 0;
+    try {
+      F.etat.mesures = [];
+      F.construireTimeline();
+      const p = I.planifierBloc(0, 2);
+      if (Object.keys(p).length) leve++;
+    } catch (e) { leve++; }
+    eq("boucle vide : plan vide, aucune exception", leve, 0);
+  })();
+
+  /* --- INTÉGRATION : le gap ne coupe que la démo ----------------------- */
+  (function () {
+    /* On repasse par l'ordonnanceur réel et l'AudioContext factice.
+       Clic seul : les événements comptés sont donc clic + démo, et la
+       démo se distingue par sa forme d'onde (dent de scie). */
+    function tourImpro(txt, gap, actif, atelier, tours) {
+      F.etat.impro = actif;
+      F.etat.imprGap = gap;
+      F.etat.imprSuite = "reprise";
+      F.etat.imprHarmonie = true; F.etat.imprRythme = true; F.etat.imprMelodie = true;
+      F.etat.grade = 4;
+      F.etat.atelier = !!atelier;
+      F.coach.courant = null;
+      win.eval("window.__evts = []; window.__rampes = []; window.__freq = []; window.__filtres = [];");
+      F.etat.battues = 4; F.etat.tempo = 60; F.etat.subdivision = 1;
+      F.etat.clic = true; F.etat.pad = false; F.etat.bourdon = false;
+      F.etat.tonalite = "";
+      const r = F.lireBoucle(txt, 4);
+      F.etat.mesures = r.mesures;
+      F.construireTimeline();
+      win.eval("ctx = window.__faireCtx(); maitre = ctx.createGain(); prochainTemps = 0; pointeur = 0; fileAttente = [];");
+      win.eval("poserAlea(graine(4242)); reinitImpro();");
+      const n = F.timeline.length * (tours || 4);
+      for (let k = 0; k < n; k++) win.eval("ctx.currentTime = " + k + "; ordonnanceur();");
+      return win.eval("window.__evts.slice()");
+    }
+    const carre = function (e) { return e.forme === "square"; };
+    const scie = function (e) { return e.forme === "sawtooth"; };
+
+    const sansDemo = tourImpro("Am7 | D7", 0, false);
+    const avecDemo = tourImpro("Am7 | D7", 0, true);
+    eq("démo coupée : aucune note de démo", sansDemo.filter(scie).length, 0);
+    t("démo active : des notes sonnent", avecDemo.filter(scie).length > 0);
+    eq("démo active : le clic n'est pas touché",
+      avecDemo.filter(carre).length, sansDemo.filter(carre).length);
+
+    /* huit tours : quatre blocs de démo séparés par leurs gaps, de quoi
+       comparer celui d'avant le gap et celui d'après */
+    const avecGap = tourImpro("Am7 | D7", 2, true, false, 8);
+    eq("gap actif : le clic continue pendant le gap",
+      avecGap.filter(carre).length, tourImpro("Am7 | D7", 0, false, false, 8).filter(carre).length);
+    const avecDemo8 = tourImpro("Am7 | D7", 0, true, false, 8);
+    /* la boucle fait 2 mesures = 8 temps ; gap de 2 mesures : les temps
+       0-7 sonnent, 8-15 se taisent, et ainsi de suite */
+    const notesGap = avecGap.filter(scie);
+    let dansGap = 0;
+    notesGap.forEach(function (e) {
+      const mes = Math.floor(e.t / 4);       /* 60 BPM, 4 temps par mesure */
+      if (Math.floor(mes / 2) % 2 === 1) dansGap++;
+    });
+    eq("pendant le gap : zéro note de démo", dansGap, 0);
+    t("mais la démo joue bien hors du gap", notesGap.length > 0);
+    t("le gap coûte des notes, il ne les déplace pas",
+      notesGap.length < avecDemo8.filter(scie).length);
+
+    /* reprise : le second bloc rejoue les mêmes hauteurs */
+    const h = {};
+    notesGap.forEach(function (e) {
+      const bloc = Math.floor(Math.floor(e.t / 4) / 2);
+      (h[bloc] = h[bloc] || []).push(Math.round(e.f * 100));
+    });
+    const cles = Object.keys(h).map(Number).sort(function (a, b) { return a - b; });
+    t("reprise : le bloc qui suit le gap rejoue les mêmes hauteurs",
+      cles.length >= 2 && h[cles[0]].join(",") === h[cles[1]].join(","));
+    t("reprise : la paire suivante est une AUTRE phrase",
+      cles.length >= 3 && h[cles[2]].join(",") !== h[cles[0]].join(","));
+
+    /* l'atelier ne joue jamais la démo : ce n'est pas sa voie */
+    const enAtelier = tourImpro("Am7 | D7", 0, true, true);
+    F.etat.atelier = false;
+    eq("en atelier, la démo se tait", enAtelier.filter(scie).length, 0);
+  })();
+
+  /* --- L'INTERFACE ----------------------------------------------------- */
+  (function () {
+    t("le bloc de réglages de la démo existe", !!doc.getElementById("champImpro"));
+    t("les trois couches ont leur interrupteur",
+      !!doc.getElementById("basImprH") && !!doc.getElementById("basImprR") && !!doc.getElementById("basImprM"));
+    t("le gap a son menu", !!doc.getElementById("imprGap"));
+    t("l'après-gap a son menu", !!doc.getElementById("imprSuite"));
+    const opts = Array.prototype.map.call(doc.getElementById("imprSuite").options, function (o) { return o.value; });
+    eq("après le gap : trois choix", opts.join(","), "auto,reprise,echange");
+    F.etat.impro = false; I.majImpro();
+    t("démo coupée : le bloc de réglages est caché", doc.getElementById("champImpro").hidden === true);
+    F.etat.impro = true; I.majImpro();
+    t("démo active : le bloc de réglages est visible", doc.getElementById("champImpro").hidden === false);
+    /* le halo du manche */
+    F.etat.imprManche = true;
+    F.rendreManche();
+    t("le manche porte le halo de la démo", !!doc.getElementById("imprHalo"));
+    I.peindreImpro(9);
+    t("le halo s'allume sur la note jouée", doc.getElementById("imprHalo").getAttribute("opacity") === "1");
+    F.etat.imprManche = false;
+    I.peindreImpro(9);
+    t("suivi coupé : le halo s'éteint", doc.getElementById("imprHalo").getAttribute("opacity") === "0");
+    F.etat.imprManche = true;
+    F.etat.impro = false;
+    I.peindreImpro(9);
+    t("démo coupée : le halo reste éteint", doc.getElementById("imprHalo").getAttribute("opacity") === "0");
+  })();
+
+  /* --- LA PERSISTANCE --------------------------------------------------- */
+  (function () {
+    F.etat.impro = true; F.etat.imprGap = 4; F.etat.imprSuite = "echange";
+    F.etat.imprHarmonie = false; F.etat.imprRythme = false; F.etat.imprMelodie = false;
+    F.etat.imprManche = false;
+    F.sauver();
+    const v = JSON.parse(win.localStorage.getItem("improvguit.v2"));
+    t("les sept réglages de la démo sont persistés",
+      v.impro === true && v.imprGap === 4 && v.imprSuite === "echange" &&
+      v.imprHarmonie === false && v.imprRythme === false && v.imprMelodie === false &&
+      v.imprManche === false);
+  })();
+
+  /* --- LE CORPUS SOUS DROITS NE FUIT PAS -------------------------------- */
+  t("le vocabulaire rythmique embarqué reste minimal (≤ 12 figures)", I.FIGURES.length <= 12);
+  t("chaque figure porte une densité et une subdivision déclarées",
+    I.FIGURES.every(function (f) {
+      return typeof f.dens === "number" && [1, 2, 3].indexOf(f.sub) >= 0 && f.d.length > 0;
+    }));
+  eq("une densité maximale par grade, onze grades", I.DENSITE.length, 11);
+  t("aucun nom d'auteur dans le vocabulaire rythmique",
+    !/santos|martinez|pellecuer|leavitt|nelson|fisher/i.test(JSON.stringify(I.FIGURES)));
+
+  /* --- remise en état pour la suite du banc ------------------------------ */
+  F.etat.impro = false;
+  F.etat.imprHarmonie = true; F.etat.imprRythme = true; F.etat.imprMelodie = true;
+  F.etat.imprGap = 0; F.etat.imprSuite = "auto"; F.etat.imprManche = true;
+  F.etat.grade = memo.grade; F.etat.battues = memo.battues;
+  F.etat.gamme = memo.gamme; F.etat.subdivision = memo.sub;
+  F.coach.courant = memo.coach;
+  I.poserAlea(null);
+  F.appliquerSaisie(memo.saisie);
+  I.reinitImpro();
+})();
+
 
 console.log("\n" + (ok + ko) + " assertions — " + ok + " au vert, " + ko + " au rouge");
 console.log(REP

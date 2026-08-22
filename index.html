@@ -390,6 +390,31 @@ body.jeu .grille-cadre{flex:0 0 auto;max-height:104px;margin-bottom:0}
   <div class="bascule"><span>Cordes graves à droite</span><button class="interrupteur" id="basMiroir" aria-pressed="false" aria-label="Inverser les cordes"></button></div>
   <div class="bascule"><span>Consignes du coach</span><button class="interrupteur" id="basCoach" aria-pressed="true" aria-label="Consignes du coach"></button></div>
   <div class="bascule"><span>Mode pupitre au départ</span><button class="interrupteur" id="basPupitre" aria-pressed="true" aria-label="Mode pupitre au départ"></button></div>
+  <div class="bascule"><span>Démonstration jouée</span><button class="interrupteur" id="basImpro" aria-pressed="false" aria-label="Démonstration jouée"></button></div>
+  <div id="champImpro" hidden>
+    <div class="champ">
+      <label for="imprGap">Gap — mesures laissées à l'élève</label>
+      <select id="imprGap">
+        <option value="0">aucun — démonstration continue</option>
+        <option value="1">1 mesure</option>
+        <option value="2">2 mesures</option>
+        <option value="4">4 mesures</option>
+        <option value="8">8 mesures</option>
+      </select>
+    </div>
+    <div class="champ">
+      <label for="imprSuite">Après le gap</label>
+      <select id="imprSuite">
+        <option value="auto">selon le grade</option>
+        <option value="reprise">rejouer la même phrase</option>
+        <option value="echange">une phrase neuve</option>
+      </select>
+    </div>
+    <div class="bascule"><span>Couche harmonie</span><button class="interrupteur" id="basImprH" aria-pressed="true" aria-label="Couche harmonie"></button></div>
+    <div class="bascule"><span>Couche rythme</span><button class="interrupteur" id="basImprR" aria-pressed="true" aria-label="Couche rythme"></button></div>
+    <div class="bascule"><span>Couche mélodie</span><button class="interrupteur" id="basImprM" aria-pressed="true" aria-label="Couche mélodie"></button></div>
+    <div class="bascule"><span>Suivre la démo sur le manche</span><button class="interrupteur" id="basImprManche" aria-pressed="true" aria-label="Suivre la démo sur le manche"></button></div>
+  </div>
 </section>
 
 <section class="consigne">
@@ -980,6 +1005,12 @@ const etat = {
   grade:0, saisie:"Am7 | D7", mesures:[], battues:4, tempo:76,
   zone:"0-5", duree:300, gamme:"majeur", toniqueModele:0,
   subdivision:1, pad:true, bourdon:false, clic:true, miroir:false, coach:true, contrainte:"", morceau:"", modeleActif:"", tonalite:"",
+  /* couche impro : la démonstration jouée. Les trois couches sont
+     coupables séparément — une couche coupée ne se tait pas, elle
+     produit la version pauvre (voir section 7). imprGap est un
+     nombre de MESURES, pas de tours de boucle. */
+  impro:false, imprHarmonie:true, imprRythme:true, imprMelodie:true,
+  imprGap:0, imprSuite:"auto", imprManche:true,
   /* jeu : régime d'affichage courant, volontairement NON persisté — on ne
      rouvre pas l'app en pupitre. pupitre : la préférence, elle, se garde. */
   jeu:false, pupitre:true,
@@ -1276,6 +1307,8 @@ function sauver(){
       zone:etat.zone, duree:etat.duree, gamme:etat.gamme, toniqueModele:etat.toniqueModele,
       subdivision:etat.subdivision,
       pad:etat.pad, bourdon:etat.bourdon, clic:etat.clic, miroir:etat.miroir, coach:etat.coach, pupitre:etat.pupitre, morceau:etat.morceau, modeleActif:etat.modeleActif, tonalite:etat.tonalite,
+      impro:etat.impro, imprHarmonie:etat.imprHarmonie, imprRythme:etat.imprRythme,
+      imprMelodie:etat.imprMelodie, imprGap:etat.imprGap, imprSuite:etat.imprSuite, imprManche:etat.imprManche,
       atelier:etat.atelier, palier:etat.palier, atelierBoucle:etat.atelierBoucle, atelierRenv:etat.atelierRenv, atelierJeu:etat.atelierJeu,
       saisieAvant:etat.saisieAvant
     }));
@@ -1436,6 +1469,9 @@ function ordonnanceur(){
       const sub = etat.subdivision === 3 ? 3 : (etat.subdivision === 2 ? 2 : 1);
       for(let k=1;k<sub;k++) clic(prochainTemps + parTemps * k / sub, "sub");
       if(b.debutAccord) pad(prochainTemps, b.accord, parTemps * dureeAccord(pointeur));
+      /* la démonstration jouée passe par la même fenêtre d'anticipation
+         que le clic et la nappe : un seul horloge, une seule avance */
+      imprPasser(prochainTemps, pointeur, parTemps);
       fileAttente.push({i:pointeur, t:prochainTemps});
     }
     prochainTemps += parTemps;
@@ -1452,6 +1488,10 @@ function boucleVisuelle(){
     const b = timeline[tempsAffiche];
     if(b && b.debutAccord) rendreManche();
   }
+  /* le halo de la démo se dépile contre ctx.currentTime, comme la
+     synchro des temps : il suit la note ENTENDUE, pas la note
+     programmée — qui a jusqu'à 120 ms d'avance. */
+  while(fileImpro.length && fileImpro[0].t <= now) peindreImpro(fileImpro.shift().pc);
   coachArmer();
   if(etat.duree > 0){
     const ecoule = performance.now();
@@ -1475,6 +1515,7 @@ async function demarrer(){
   /* Seul endroit, avec la fin de séance, où l'affichage gelé est relâché :
      on repart du haut de boucle, la première image sera peinte au temps 0. */
   pointeur = 0; tempsAffiche = -1; fileAttente = [];
+  reinitImpro();
   prochainTemps = ctx.currentTime + 0.08;
   if(etat.duree > 0 && restant <= 0) restant = etat.duree;
   dernierTic = performance.now();
@@ -1498,6 +1539,10 @@ function arreter(fini){
     maitre.gain.linearRampToValueAtTime(0.0001, t + 0.02);
   }
   fileAttente = [];
+  /* Les notes de démo déjà programmées sont éteintes par la fermeture du
+     maître, comme les clics et les nappes — rien de spécial à faire pour
+     le son. La file du halo, elle, ne passe pas par l'audio : on la vide. */
+  fileImpro = [];
   /* Arrêté n'est pas remis à zéro. En pause manuelle on gèle l'affichage :
      tempsAffiche reste sur le temps atteint, donc le manche garde l'accord
      en cours et le coach ses anneaux — mettre en pause pour regarder le
@@ -1507,6 +1552,7 @@ function arreter(fini){
     tempsAffiche = -1;
     restant = 0;
     coachEffacer();
+    reinitImpro();
   }else{
     /* enMarche est déjà faux : le battement d'armement s'éteint de lui-même,
        sans passer par coachEffacer() qui, lui, retirerait les anneaux. */
@@ -1786,7 +1832,10 @@ function tirerConsigne(gr, precedente){
   if(!elig.length) return null;
   if(elig.length === 1) return elig[0];
   const pool = elig.filter(function(c){ return c !== precedente; });
-  return pool[Math.floor(Math.random() * pool.length)];
+  /* passe par alea() — injectable, voir section 7 : sans quoi le tirage
+     des consignes resterait hors de portée du banc, alors que la
+     démonstration jouée en dépend. */
+  return pool[Math.floor(alea() * pool.length) % pool.length];
 }
 function majCoach(){
   const el = document.getElementById("coach");
@@ -1840,7 +1889,441 @@ function coachArmer(){
 }
 
 /* ============================================================
-   7. MANCHE (vertical, sillet en haut)
+   7. IMPRO — LA DÉMONSTRATION SONORE
+   ------------------------------------------------------------
+   Le coach DIT ce qu'il faudrait jouer ; cette couche le JOUE.
+   Elle n'est pas un second cerveau posé à côté du coach : elle
+   en est la restitution sonore. cheminCoach() livrait déjà une
+   suite de hauteurs ORIENTÉES — {pc, ord, h} — c'est-à-dire la
+   matière d'une phrase ; il lui manquait un rythme, un registre
+   et une voix. Ajouter une consigne au coach suffit donc à
+   étendre la démonstration, sans une ligne de plus ici.
+
+   Les trois couches du réglage sont trois questions posées à la
+   MÊME note : ai-je le droit (harmonie), quand (rythme),
+   pourquoi celle-là plutôt qu'une autre (mélodie).
+
+   ⚑ Une couche coupée ne produit pas du silence : elle produit
+   la version pauvre. C'est ce qui la rend démonstrative — on
+   entend ce que la variable apporte, au lieu de le lire. Les
+   trois coupées d'un coup donnent une note par temps tirée au
+   hasard dans la gamme : volontairement laid, et c'est le
+   témoin. Si ça sonne bien, le générateur ne fait rien.
+   ============================================================ */
+
+/* L'aléa est INJECTABLE, et il le faut. Un générateur qui appelle
+   Math.random() en dur n'est pas vérifiable : le banc ne pourrait
+   affirmer ni qu'une couche coupée change la sortie, ni qu'aucune
+   note ne sort du réservoir, ni que le gap est vraiment vide. Il
+   pose une graine, rejoue, et compare. Sans cette porte, chaque
+   assertion passerait des deux côtés — donc ne testerait rien. */
+let alea = Math.random;
+function poserAlea(f){ alea = (typeof f === "function") ? f : Math.random; }
+/* xorshift32 : quinze lignes, aucune dépendance, reproductible. */
+function graine(n){
+  let s = (n | 0) || 0x9E3779B9;
+  return function(){
+    s ^= s << 13; s ^= s >>> 17; s ^= s << 5;
+    return (s >>> 0) / 4294967296;
+  };
+}
+function tirerDans(liste){
+  if(!liste || !liste.length) return null;
+  return liste[Math.floor(alea() * liste.length) % liste.length];
+}
+/* classe de hauteur de `liste` la plus proche de pc, en demi-tons
+   par le plus court chemin sur le cercle */
+function plusProche(pc, liste){
+  if(!liste || !liste.length) return pc;
+  let best = liste[0], bd = 99;
+  for(let i=0;i<liste.length;i++){
+    const q = liste[i];
+    const d = Math.min(((q - pc) % 12 + 12) % 12, ((pc - q) % 12 + 12) % 12);
+    if(d < bd){ bd = d; best = q; }
+  }
+  return best;
+}
+
+/* Vocabulaire rythmique MINIMAL, et de bien commun : les figures
+   qu'on trouve dans n'importe quelle méthode depuis un siècle.
+   Les relevés sous droits ne sont PAS ici — ils vivent dans
+   corpus/grooves.json, côté portail, derrière Access. Le moteur
+   connaît la FORME d'une figure ; le corpus privé n'ajoute pas
+   une capacité, il ajoute du répertoire.
+   d : durées en temps ; une valeur NÉGATIVE est un silence de même
+   longueur. dens : nombre d'attaques. sub : 1 = toujours admise,
+   2 = subdivision binaire, 3 = ternaire. */
+const FIGURES = [
+  {id:"noire",       d:[1],                    dens:1, sub:1},
+  {id:"silence",     d:[-1],                   dens:0, sub:1},
+  {id:"blanche",     d:[2],                    dens:1, sub:1},
+  {id:"croches",     d:[0.5, 0.5],             dens:2, sub:2},
+  {id:"pointee",     d:[0.75, 0.25],           dens:2, sub:2},
+  {id:"contretemps", d:[-0.5, 0.5],            dens:1, sub:2},
+  {id:"doubles",     d:[0.25,0.25,0.25,0.25],  dens:4, sub:2},
+  {id:"triolet",     d:[1/3, 1/3, 1/3],        dens:3, sub:3},
+  {id:"chabada",     d:[2/3, 1/3],             dens:2, sub:3},
+  {id:"ternsil",     d:[-1/3, 1/3, 1/3],       dens:2, sub:3}
+];
+/* Densité maximale d'attaques par mesure, PAR GRADE : la démo se
+   bride au grade en cours. À G0 elle pose une note et la laisse
+   sonner ; à G10 elle dispose de tout. Même principe que marques()
+   et que les paliers de l'atelier — une seule variable s'ouvre à
+   la fois. La démo est le modèle exact de ce qui est demandé, et
+   non la vitrine de ce que le moteur sait faire. */
+const DENSITE = [1, 4, 3, 3, 5, 5, 6, 3, 4, 3, 2];
+
+/* Ce que la démo a le droit de jouer sur ce temps.
+   legales : le réservoir. piliers : les notes qui tiennent un temps
+   fort ou une zone d'atterrissage.
+   ⚑ Harmonie coupée : le réservoir tombe à la GAMME SEULE et les
+   piliers disparaissent. On entend alors la ligne passer À CÔTÉ du
+   changement d'accord — l'errance décrite par le README, rendue
+   audible au lieu d'être décrite. */
+function reservoirImpro(b){
+  const a = b && b.accord;
+  const ton = toniqueModale(etat.mesures, a ? a.pc : 0);
+  const gam = gammeCourante().iv.map(function(n){ return (ton + n) % 12; });
+  const notes = a ? a.notes.slice() : [];
+  const uni = function(x, y){
+    return x.concat(y.filter(function(pc){ return x.indexOf(pc) < 0; }));
+  };
+  const rendre = function(legales, piliers){
+    let L = legales.filter(function(v,i,t){ return t.indexOf(v) === i; });
+    if(!L.length) L = gam.slice();
+    if(!L.length) L = [ton];
+    const P = (piliers || []).filter(function(pc){ return L.indexOf(pc) >= 0; });
+    return {legales:L, piliers:P};
+  };
+  if(!etat.imprHarmonie) return rendre(gam, []);
+  const mode = grade().mode;
+  if(mode === "une")      return rendre([ton], [ton]);
+  if(mode === "cellule"){ const c = cellule(etat.mesures); return rendre(c, c.slice(0,1)); }
+  if(mode === "gamme")    return rendre(gam, notes);
+  if(mode === "couplage") return rendre(uni(gam, notes), notes);
+  if(mode === "ornement"){
+    const orn = [];
+    notes.forEach(function(pc){ orn.push((pc + 11) % 12); orn.push((pc + 1) % 12); });
+    return rendre(uni(notes, orn), notes);
+  }
+  if(mode === "libre"){
+    const tout = []; for(let pc=0;pc<12;pc++) tout.push(pc);
+    return rendre(tout, notes);
+  }
+  /* mode "accord" — G3, G7, G8, G9 */
+  return rendre(notes, notes);
+}
+
+/* Gestes de repli, PAR MODE DE GRADE. Sur les 42 consignes du coach,
+   une bonne part n'a pas de `chemin` : « Énonce un motif rythmique,
+   répète-le tel quel » est une consigne rythmique, sans hauteurs.
+   La démo doit alors fabriquer un geste — et elle le fait avec les
+   DIX types que cheminCoach() connaît déjà, pas avec une grammaire
+   parallèle qui divergerait en silence. */
+const GESTE_GRADE = {
+  une:      [{type:"pilier"}, {type:"cible", vers:"tonique"}],
+  cellule:  [{type:"cellule"}],
+  accord:   [{type:"cible", vers:"fondCourant"}, {type:"cible", vers:"tierceCourant"},
+             {type:"cible", vers:"fondSuivant"}, {type:"cible", vers:"septiemeCourant"}],
+  gamme:    [{type:"montee", vers:"tonique", n:4}, {type:"descente", vers:"tonique", n:4}],
+  couplage: [{type:"montee", vers:"tonique", n:4}, {type:"cible", vers:"tierceCourant"},
+             {type:"descente", vers:"tonique", n:3}],
+  ornement: [{type:"broderie", vers:"tierceCourant"}, {type:"enclosure", vers:"fondCourant"},
+             {type:"approche", vers:"tierceCourant"}],
+  libre:    [{type:"montee", vers:"tonique", n:3}, {type:"broderie", vers:"quinteCourant"},
+             {type:"commune"}, {type:"pilier"}]
+};
+/* Le geste de la phrase : la consigne en cours si elle en porte un,
+   sinon un repli tiré dans le mode du grade. Renvoie null si aucun
+   geste n'est calculable — la couche mélodie retombe alors sur le
+   tirage libre, exactement comme si elle était coupée. */
+function gesteImpro(){
+  if(etat.coach && coach.courant && coach.courant.chemin){
+    const c = cheminCoach(coach.courant.chemin);
+    if(c && c.pas && c.pas.length) return c.pas;
+  }
+  const liste = GESTE_GRADE[grade().mode] || GESTE_GRADE.accord;
+  const depart = Math.floor(alea() * liste.length) % liste.length;
+  for(let k=0;k<liste.length;k++){
+    const c = cheminCoach(liste[(depart + k) % liste.length]);
+    if(c && c.pas && c.pas.length) return c.pas;
+  }
+  return null;
+}
+
+/* Registre de la démo : au-dessus de la nappe (48-64) et du bourdon
+   (36-48). Trois étages qui ne se marchent pas dessus. */
+const MIDI_BAS = 57, MIDI_HAUT = 81;
+/* ⚑ Le registre se décide UNE fois, au départ de la phrase, puis se
+   suit par proximité. Ne pas le recalculer en repartant de zéro à
+   chaque note : c'est ainsi qu'une « montée » finit par descendre —
+   la faute exacte que deroulerChemin() a déjà eu à corriger sur le
+   manche, pour la même raison (les classes de hauteur sont modulo 12,
+   Do suivi de Ré monte de deux demi-tons ou descend de dix). */
+function versMidi(pc, ref){
+  let m = MIDI_BAS + ((((pc - MIDI_BAS) % 12) + 12) % 12);
+  while(m + 12 <= MIDI_HAUT && Math.abs(m + 12 - ref) < Math.abs(m - ref)) m += 12;
+  return m;
+}
+
+/* Une cellule rythmique est tirée pour la première mesure du bloc,
+   puis RÉPÉTÉE telle quelle, ou avec une seule valeur changée. C'est
+   la consigne G1 — « énonce un motif, répète-le » — appliquée au
+   générateur lui-même.
+   ⚑ Rythme coupé : une note par temps, toutes égales. La ligne
+   devient un exercice de gamme : juste, et sans discours. */
+function varierRythme(cell){
+  const c = cell.slice(), idx = [];
+  for(let i=0;i<c.length;i++) if(c[i] > 0) idx.push(i);
+  if(!idx.length) return c;
+  const j = idx[Math.floor(alea() * idx.length) % idx.length];
+  c[j] = -c[j];
+  if(!c.some(function(x){ return x > 0; })) c[j] = Math.abs(c[j]);
+  return c;
+}
+function tirerRythme(B, dmax, cellPrec){
+  if(!etat.imprRythme){
+    const plat = [];
+    for(let t=0;t<B;t++) plat.push(1);
+    return plat;
+  }
+  if(cellPrec){
+    const r = alea();
+    if(r < 0.42) return cellPrec.slice();
+    if(r < 0.72) return varierRythme(cellPrec);
+  }
+  const tern = (etat.subdivision === 3);
+  const dispo = FIGURES.filter(function(f){
+    return f.sub === 1 || f.sub === (tern ? 3 : 2);
+  });
+  const long = function(f){
+    return f.d.reduce(function(s,x){ return s + Math.abs(x); }, 0);
+  };
+  const out = [];
+  let reste = B, attaques = 0, garde = 0;
+  while(reste > 1e-6 && garde++ < 64){
+    const cand = dispo.filter(function(f){
+      return long(f) <= reste + 1e-6 && attaques + f.dens <= dmax;
+    });
+    if(!cand.length){ out.push(-reste); reste = 0; break; }
+    const f = tirerDans(cand);
+    f.d.forEach(function(x){ out.push(x); });
+    reste -= long(f);
+    attaques += f.dens;
+  }
+  if(!out.some(function(x){ return x > 0; })) out[0] = Math.abs(out[0] || 1);
+  return out;
+}
+
+/* Plan d'un bloc de démonstration, indexé par temps RELATIF au début
+   du bloc — surtout pas par index de timeline : c'est cette clé
+   relative qui rend la reprise rejouable telle quelle après le gap.
+   ⚑ L'ORDRE des trois couches n'est pas décoratif. Le rythme passe
+   EN PREMIER parce qu'il fixe le nombre de notes à trouver : une
+   figure mélodique de trois pas ne se plaque pas sur un rythme qui
+   demande sept attaques. On tire donc la cellule, puis on remplit en
+   bouclant le geste. */
+function planifierBloc(iDepart, nMes){
+  const plan = {};
+  if(!timeline.length) return plan;
+  const B = etat.battues;
+  const pas = etat.imprMelodie ? gesteImpro() : null;
+  const dmax = DENSITE[etat.grade] || 3;
+  let ref = Math.round((MIDI_BAS + MIDI_HAUT) / 2), k = 0, cell = null;
+  for(let m=0;m<nMes;m++){
+    const rythme = tirerRythme(B, dmax, m > 0 ? cell : null);
+    if(m === 0) cell = rythme;
+    let pos = 0;
+    for(let z=0;z<rythme.length;z++){
+      const d = rythme[z], dur = Math.abs(d);
+      if(d > 0 && pos < B - 1e-6){
+        const bt = Math.min(B - 1, Math.floor(pos + 1e-9));
+        const rel = m * B + bt;
+        const b = timeline[(iDepart + rel) % timeline.length];
+        const res = reservoirImpro(b);
+        let pc;
+        if(pas && pas.length){
+          pc = pas[k % pas.length].pc;
+          if(res.legales.indexOf(pc) < 0) pc = plusProche(pc, res.legales);
+        }else{
+          pc = tirerDans(res.legales);
+        }
+        /* ⚑ La couche harmonie ne se contente pas de filtrer : elle
+           REPLACE un pilier là où il compte — temps fort et dernier
+           temps avant le changement, les deux rendez-vous que
+           zoneAtterrissage marque déjà pour le manche. Coupée, ces
+           rendez-vous disparaissent, et c'est précisément ce qu'on
+           veut faire entendre. */
+        const surTemps = Math.abs(pos - bt) < 1e-6;
+        const rdv = !!(b && (b.fort || b.zoneAtterrissage) && surTemps);
+        if(etat.imprHarmonie && rdv && res.piliers.length) pc = plusProche(pc, res.piliers);
+        const midi = versMidi(pc, ref);
+        ref = midi;
+        (plan[rel] = plan[rel] || []).push({
+          off:pos - bt, pc:pc, midi:midi, duree:dur, rdv:rdv
+        });
+        k++;
+      }
+      pos += dur;
+    }
+  }
+  return plan;
+}
+
+/* ── Le cycle démo + gap + démo ─────────────────────────────────────
+   Cadencé À LA MESURE, comme l'utilisateur l'a tranché : gap = 4 veut
+   dire quatre mesures, quelle que soit la longueur de la boucle. Sur
+   une boucle de deux mesures, le gap fait donc deux tours — c'est la
+   convention du trade fours, et c'est voulu.
+   ⚑ Pendant le gap, SEULE cette couche se tait. Nappe, bourdon, clic,
+   grille et coach continuent : sans eux le gap n'est pas un tour de
+   parole, c'est une panne. On ne touche donc jamais au maître — on ne
+   programme simplement aucune note.
+   Les blocs de démo vont par PAIRES en mode « reprise » : la phrase
+   revient une fois après le gap, ce qui fait un appel à imiter. En
+   mode « échange », chaque bloc tire du neuf : c'est un trade fours. */
+let imprMesure = -1, imprBloc = -1, imprDebut = 0, imprPlan = null;
+let imprMemo = {phrase:-1, plan:null};
+let fileImpro = [], imprPos = null, imprPc = -1;
+
+function suiteImpro(){
+  if(etat.imprSuite === "reprise" || etat.imprSuite === "echange") return etat.imprSuite;
+  /* « selon le grade » : G7 s'appelle Discours et parle déjà de question
+     et de réponse — c'est là que l'imitation cède la place à l'échange. */
+  return etat.grade >= 7 ? "echange" : "reprise";
+}
+/* mes = numéro de mesure absolu depuis le démarrage */
+function etatImpro(mes){
+  const N = etat.imprGap | 0;
+  const L = Math.max(1, etat.mesures.length);
+  if(N <= 0){
+    const b = Math.floor(mes / L);
+    return {demo:true, bloc:b, phrase:b, taille:L};
+  }
+  const bloc = Math.floor(mes / N);
+  if(bloc % 2 === 1) return {demo:false, bloc:bloc, phrase:-1, taille:N};
+  const k = bloc / 2;
+  return {demo:true, bloc:bloc, phrase:(suiteImpro() === "reprise") ? Math.floor(k / 2) : k, taille:N};
+}
+
+/* Voix de la démo : une QUATRIÈME voix, distincte de la nappe, du
+   bourdon et du clic — sans quoi la ligne se noie dans son propre
+   fond. Corde pincée : le filtre descend avec l'enveloppe. Une
+   hauteur tenue au timbre constant s'entend comme un test auditif,
+   pas comme une note jouée.
+   Tout passe par `maitre` et jamais par ctx.destination : c'est ce
+   qui fait que arreter() éteint aussi la démo, sans une ligne de plus. */
+function voixImpro(t, midi, duree, niveau){
+  if(!ctx || !maitre) return;
+  const d = Math.max(0.09, Math.min(duree, 1.6));
+  const f = 440 * Math.pow(2, (midi - 69) / 12);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(niveau, t + 0.006);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  const fl = ctx.createBiquadFilter();
+  fl.type = "lowpass";
+  fl.frequency.setValueAtTime(Math.min(9000, f * 9), t);
+  fl.frequency.exponentialRampToValueAtTime(Math.max(320, f * 1.8), t + d);
+  fl.Q.value = 0.9;
+  fl.connect(g);
+  g.connect(maitre);
+  /* deux sources légèrement désaccordées : une seule oscillation pure
+     sonne synthétique là où deux battent comme une corde réelle */
+  [[0, "sawtooth"], [4, "triangle"]].forEach(function(p){
+    const o = ctx.createOscillator();
+    o.type = p[1];
+    o.frequency.value = f * Math.pow(2, p[0] / 1200);
+    o.connect(fl);
+    o.start(t);
+    o.stop(t + d + 0.05);
+  });
+}
+
+/* Appelé par l'ordonnanceur pour CHAQUE temps programmé, dans la même
+   fenêtre d'anticipation que le clic et la nappe. Ne programme rien
+   pendant le gap, rien en atelier, rien si la couche est coupée. */
+function imprPasser(t, i, parTemps){
+  if(!etat.impro || etat.atelier || !timeline.length) return;
+  const b = timeline[i];
+  if(!b) return;
+  if(b.temps === 0) imprMesure++;
+  const e = etatImpro(Math.max(0, imprMesure));
+  if(!e.demo){ imprPlan = null; imprBloc = e.bloc; return; }
+  if(e.bloc !== imprBloc || !imprPlan){
+    imprBloc = e.bloc;
+    imprDebut = Math.max(0, imprMesure);
+    if(e.phrase >= 0 && imprMemo.phrase === e.phrase && imprMemo.plan){
+      /* reprise : la MÊME phrase, au plan près. Rien n'est retiré au sort. */
+      imprPlan = imprMemo.plan;
+    }else{
+      imprPlan = planifierBloc(i - b.temps, e.taille);
+      imprMemo = {phrase:e.phrase, plan:imprPlan};
+    }
+  }
+  const rel = (Math.max(0, imprMesure) - imprDebut) * etat.battues + b.temps;
+  const notes = imprPlan[rel];
+  if(!notes) return;
+  notes.forEach(function(n){
+    const t0 = t + n.off * parTemps;
+    voixImpro(t0, n.midi, n.duree * parTemps, n.rdv ? 0.115 : 0.088);
+    fileImpro.push({t:t0, pc:n.pc});
+  });
+}
+
+/* ── Le manche pendant la démo ──────────────────────────────────────
+   La figure reste affichée par la couche coach ; un halo la suit note
+   à note. Les deux ne disent pas la même chose : la figure est le
+   geste, le halo est l'endroit où le doigt se pose maintenant. */
+let geoManche = null;
+function positionImpro(pc){
+  if(!geoManche) return null;
+  const G = geoManche;
+  let best = null, bd = Infinity;
+  for(let s=0;s<6;s++){
+    for(let f=G.c0;f<=G.c1;f++){
+      if((CORDES[s] + f) % 12 !== pc) continue;
+      const d = imprPos
+        ? Math.abs(f - imprPos.f) + Math.abs(s - imprPos.s) * 0.6
+        : Math.abs(f - (G.c0 + G.c1) / 2) + Math.abs(s - 2.5) * 0.6;
+      if(d < bd){ bd = d; best = {s:s, f:f}; }
+    }
+  }
+  return best;
+}
+function peindreImpro(pc){
+  const el = document.getElementById("imprHalo");
+  if(pc >= 0) imprPc = pc;
+  if(!el) return;
+  if(!etat.impro || !etat.imprManche || imprPc < 0){ el.setAttribute("opacity", "0"); return; }
+  const G = geoManche, p = positionImpro(imprPc);
+  if(!p || !G){ el.setAttribute("opacity", "0"); return; }
+  imprPos = p;
+  el.setAttribute("cx", G.x(p.s));
+  el.setAttribute("cy", (p.f === 0) ? G.HAUT - 12 : G.y(p.f - G.c0) - G.PAS_Y / 2);
+  el.setAttribute("opacity", "1");
+}
+function effacerImpro(){
+  fileImpro = []; imprPos = null; imprPc = -1;
+  const el = document.getElementById("imprHalo");
+  if(el) el.setAttribute("opacity", "0");
+}
+/* Remise à zéro du cycle : au démarrage, et dès qu'un réglage rend le
+   plan courant caduc. On ne garde jamais une phrase planifiée sur une
+   grille qui a changé — c'est la même règle que reconstruire(). */
+function reinitImpro(){
+  imprMesure = -1; imprBloc = -1; imprDebut = 0; imprPlan = null;
+  imprMemo = {phrase:-1, plan:null};
+  effacerImpro();
+}
+function majImpro(){
+  const c = document.getElementById("champImpro");
+  if(c) c.hidden = !etat.impro;
+  reinitImpro();
+}
+
+/* ============================================================
+   8. MANCHE (vertical, sillet en haut)
    ============================================================ */
 /* Choisit UNE position par étape du chemin, dans la zone visible, en
    enchaînant au plus près : la première au milieu du cadre, les suivantes
@@ -2017,7 +2500,15 @@ function rendreManche(){
       });
     }
   }
+  /* La géométrie du manche est publiée ici, et ici seulement : la couche
+     impro pose son halo aux mêmes coordonnées que les pastilles, sans
+     recalculer un second système qui divergerait en silence. */
+  geoManche = {x:x, y:y, c0:c0, c1:c1, HAUT:HAUT, PAS_Y:PAS_Y};
+  p.push('<circle id="imprHalo" data-impro="1" cx="-99" cy="-99" r="23" fill="none" stroke="var(--vert)" stroke-width="3.5" opacity="0"/>');
   svg.innerHTML = p.join("");
+  /* le manche est redessiné à chaque changement d'accord : sans ce rappel,
+     le halo s'éteindrait une note sur deux */
+  peindreImpro(-1);
   majCoach();
 
   const cour = accordCourant(), suiv = accordSuivant();
@@ -2066,7 +2557,7 @@ function rendreLegende(){
 }
 
 /* ============================================================
-   8. GRILLE
+   9. GRILLE
    ============================================================ */
 function rendreGrille(){
   const B = etat.battues;
@@ -2115,7 +2606,7 @@ function peindreTemps(){
 }
 
 /* ============================================================
-   9. CONSIGNE
+   10. CONSIGNE
    ============================================================ */
 function rendreConsigne(){
   const G = grade();
@@ -2230,7 +2721,7 @@ function tirerContrainte(){
 }
 
 /* ============================================================
-   10. RÉPERTOIRE (externe — jamais dans le dépôt)
+   11. RÉPERTOIRE (externe — jamais dans le dépôt)
    ============================================================ */
 function poserRepertoire(data, origine){
   const etatEl = document.getElementById("etatRep");
@@ -2287,7 +2778,7 @@ function chargerRepertoireDistant(){
 }
 
 /* ============================================================
-   11. INTERFACE
+   12. INTERFACE
    ============================================================ */
 function majBoutonJouer(){
   const b = document.getElementById("btnJouer");
@@ -2418,6 +2909,7 @@ function reconstruire(){
      rien, et son index pourrait sortir de la nouvelle timeline. On relâche,
      que la boucle tourne ou non. */
   pointeur = 0; fileAttente = []; tempsAffiche = -1;
+  reinitImpro();
   rendreGrille(); rendreManche(); rendreConsigne(); sauver();
 }
 function majChampGamme(){
@@ -2425,6 +2917,16 @@ function majChampGamme(){
   document.getElementById("champGamme").style.display =
     (m === "gamme" || m === "couplage") ? "" : "none";
 }
+/* Table unique des interrupteurs : id du bouton -> clé d'état. Elle était
+   écrite DEUX fois — dans remplirSelects() et dans brancher(). Un tel
+   doublon diverge en silence : c'est la faute que bloc.js documente sur
+   RHO_RANGS. Une seule liste, deux lecteurs. */
+const BASCULES = [
+  ["basPad","pad"], ["basBourdon","bourdon"], ["basClic","clic"],
+  ["basMiroir","miroir"], ["basCoach","coach"], ["basPupitre","pupitre"],
+  ["basImpro","impro"], ["basImprH","imprHarmonie"], ["basImprR","imprRythme"],
+  ["basImprM","imprMelodie"], ["basImprManche","imprManche"]
+];
 function remplirSelects(){
   const t = document.getElementById("tonique");
   t.innerHTML = NOMS.map(function(n,i){ return '<option value="'+i+'">'+n+" ("+FR[i]+")</option>"; }).join("");
@@ -2437,10 +2939,14 @@ function remplirSelects(){
   document.getElementById("zone").value = etat.zone;
   document.getElementById("duree").value = String(etat.duree);
   document.getElementById("saisieAccords").value = etat.saisie;
-  [["basPad","pad"],["basBourdon","bourdon"],["basClic","clic"],["basMiroir","miroir"],["basCoach","coach"],["basPupitre","pupitre"]].forEach(function(p){
+  BASCULES.forEach(function(p){
     const el = document.getElementById(p[0]);
     if(el) el.setAttribute("aria-pressed", String(!!etat[p[1]]));
   });
+  const eg = document.getElementById("imprGap");
+  if(eg) eg.value = String(etat.imprGap);
+  const es = document.getElementById("imprSuite");
+  if(es) es.value = etat.imprSuite;
 }
 function brancher(){
   document.getElementById("btnJouer").addEventListener("click", basculer);
@@ -2593,14 +3099,25 @@ function brancher(){
   document.getElementById("btnPlein").addEventListener("click", function(){
     etat.jeu = !etat.jeu; majJeu();
   });
-  [["basPad","pad"],["basBourdon","bourdon"],["basClic","clic"],["basMiroir","miroir"],["basCoach","coach"],["basPupitre","pupitre"]].forEach(function(p){
-    document.getElementById(p[0]).addEventListener("click", function(){
+  BASCULES.forEach(function(p){
+    const b = document.getElementById(p[0]);
+    if(!b) return;
+    b.addEventListener("click", function(){
       etat[p[1]] = !etat[p[1]];
       this.setAttribute("aria-pressed", String(etat[p[1]]));
       if(p[1] === "miroir") rendreManche();
       if(p[1] === "coach" && !etat.coach) coachEffacer();
+      /* toute retouche d'une couche rend le plan courant caduc : on ne
+         garde jamais une phrase planifiée sous d'autres règles */
+      if(p[1].slice(0, 4) === "impr" || p[1] === "impro"){ majImpro(); peindreImpro(-1); }
       sauver();
     });
+  });
+  document.getElementById("imprGap").addEventListener("change", function(){
+    etat.imprGap = parseInt(this.value, 10) || 0; reinitImpro(); sauver();
+  });
+  document.getElementById("imprSuite").addEventListener("change", function(){
+    etat.imprSuite = this.value; reinitImpro(); sauver();
   });
   document.addEventListener("keydown", function(e){
     if(e.code === "Space" && !/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)){ e.preventDefault(); basculer(); }
@@ -2614,6 +3131,7 @@ function init(){
   remplirSelects();
   rendreGrades(); rendreModeles(); majChampGamme();
   document.getElementById("basAtelierBoucle").setAttribute("aria-pressed", String(etat.atelierBoucle));
+  majImpro();
   majVoie(); majJeu();
   construireTimeline();
   rendreGrille(); rendreManche(); rendreConsigne();
@@ -2629,6 +3147,9 @@ if(typeof module !== "undefined" && module.exports){
                     analyserNote, cleCorpus, contenuBulle, faitsNote, CORPUS, MODELES,
                     montrerBulle, cacherBulle, appliquerSaisie, appliquerModele, rendreManche, rendreConsigne,
                     CONSIGNES, cheminCoach, consignesEligibles, tirerConsigne, poserConsigne,
+                    poserAlea, graine, FIGURES, DENSITE, GESTE_GRADE, reservoirImpro, gesteImpro,
+                    tirerRythme, varierRythme, planifierBloc, etatImpro, suiteImpro, versMidi,
+                    plusProche, reinitImpro, majImpro, peindreImpro, MIDI_BAS, MIDI_HAUT,
                     coachEffacer, coachTop, majCoach, coach, resoudreCible, distanceChangement, positionsChemin,
                     TRIADES, JEUX, RENVERSEMENTS, PALIERS, formeTriade, harmoniserGamme, nashville,
                     triadeDeAccord, triadeAtelier, palier, etat, marques};
