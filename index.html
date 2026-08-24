@@ -387,6 +387,24 @@ body.jeu .grille-cadre{flex:0 0 auto;max-height:104px;margin-bottom:0}
   <div class="bascule"><span>Accords en fond</span><button class="interrupteur" id="basPad" aria-pressed="true" aria-label="Accords en fond"></button></div>
   <div class="bascule"><span>Bourdon de tonique</span><button class="interrupteur" id="basBourdon" aria-pressed="false" aria-label="Bourdon de tonique"></button></div>
   <div class="bascule"><span>Clic du métronome</span><button class="interrupteur" id="basClic" aria-pressed="true" aria-label="Clic du métronome"></button></div>
+  <div class="bascule"><span>Boîte à rythmes</span><button class="interrupteur" id="basBatterie" aria-pressed="false" aria-label="Boîte à rythmes"></button></div>
+  <div id="champBatterie" hidden>
+    <div class="champ">
+      <label for="groove">Groove</label>
+      <select id="groove"></select>
+      <div class="aide" id="aideGroove"></div>
+    </div>
+    <div class="champ">
+      <label for="grooveDensite">Densité rythmique</label>
+      <select id="grooveDensite">
+        <option value="1">squelette — les seuls appuis</option>
+        <option value="2">allégé — garniture sur les temps</option>
+        <option value="3">complet — le groove tel qu'il est écrit</option>
+      </select>
+      <div class="aide">Réglage séparé du grade : le groove est le contexte, pas l'exercice.</div>
+    </div>
+    <div class="bascule"><span>La batterie se tait aussi pendant le gap</span><button class="interrupteur" id="basBatterieGap" aria-pressed="true" aria-label="La batterie se tait aussi pendant le gap"></button></div>
+  </div>
   <div class="bascule"><span>Cordes graves à droite</span><button class="interrupteur" id="basMiroir" aria-pressed="false" aria-label="Inverser les cordes"></button></div>
   <div class="bascule"><span>Consignes du coach</span><button class="interrupteur" id="basCoach" aria-pressed="true" aria-label="Consignes du coach"></button></div>
   <div class="bascule"><span>Mode pupitre au départ</span><button class="interrupteur" id="basPupitre" aria-pressed="true" aria-label="Mode pupitre au départ"></button></div>
@@ -1042,6 +1060,11 @@ const etat = {
      nombre de MESURES, pas de tours de boucle. */
   impro:false, imprHarmonie:true, imprRythme:true, imprMelodie:true,
   imprGap:0, imprSuite:"auto", imprManche:true,
+  /* boîte à rythmes : la quatrième couche. Coupée, elle ne se tait pas
+     non plus — elle laisse le clic seul, qui est exactement la version
+     pauvre d'une section rythmique. grooveDensite est un curseur
+     SÉPARÉ du grade (note 16 §5 nº 3). */
+  batterie:false, groove:"rk-base", grooveDensite:3, batterieGap:true,
   /* jeu : régime d'affichage courant, volontairement NON persisté — on ne
      rouvre pas l'app en pupitre. pupitre : la préférence, elle, se garde. */
   jeu:false, pupitre:true,
@@ -1338,6 +1361,8 @@ function sauver(){
       zone:etat.zone, duree:etat.duree, gamme:etat.gamme, toniqueModele:etat.toniqueModele,
       subdivision:etat.subdivision,
       pad:etat.pad, bourdon:etat.bourdon, clic:etat.clic, miroir:etat.miroir, coach:etat.coach, pupitre:etat.pupitre, morceau:etat.morceau, modeleActif:etat.modeleActif, tonalite:etat.tonalite,
+      batterie:etat.batterie, groove:etat.groove, grooveDensite:etat.grooveDensite,
+      batterieGap:etat.batterieGap,
       impro:etat.impro, imprHarmonie:etat.imprHarmonie, imprRythme:etat.imprRythme,
       imprMelodie:etat.imprMelodie, imprGap:etat.imprGap, imprSuite:etat.imprSuite, imprManche:etat.imprManche,
       atelier:etat.atelier, palier:etat.palier, atelierBoucle:etat.atelierBoucle, atelierRenv:etat.atelierRenv, atelierJeu:etat.atelierJeu,
@@ -1395,6 +1420,10 @@ function dureeAccord(i){
 let ctx = null, maitre = null;
 let enMarche = false, prochainTemps = 0, pointeur = 0, boucleMinuteur = null;
 let fileAttente = [], tempsAffiche = -1, restant = 0, dernierTic = 0, verrou = null;
+/* ⚠️ Le tout premier accord de la boucle ne peut pas être anticipé : rien
+   ne le précède. Il sonne sur son temps, une seule fois, puis le cycle
+   suivant l'anticipe normalement depuis le dernier temps. */
+let padAmorce = false;
 
 function initAudio(){
   if(ctx) return;
@@ -1404,15 +1433,25 @@ function initAudio(){
   maitre = ctx.createGain();
   maitre.gain.value = 0.9;
   maitre.connect(ctx.destination);
+  initBruit();
 }
 const VOLUME_CLIC = {chgt:0.20, fort:0.20, faible:0.10, sub:0.045};
+/* ⭐ Arbitrage note 16 §5 nº 1 : la batterie et le clic COEXISTENT, mais le
+   clic quitte son 0,20 dès que la batterie entre. Deux pulsations, l'une
+   subordonnée — pas deux repères concurrents. Le clic reste le seul à
+   marquer le changement d'accord, ce qu'aucun groove ne dit. */
+const VOLUME_CLIC_BAS = {chgt:0.085, fort:0.055, faible:0.028, sub:0.014};
+function volumeClic(type){
+  const t = batterieArmee() ? VOLUME_CLIC_BAS : VOLUME_CLIC;
+  return t[type] || t.faible;
+}
 function clic(t, type){
   if(!etat.clic || !ctx) return;
   const o = ctx.createOscillator(), g = ctx.createGain();
   o.type = "square";
   o.frequency.value = type === "chgt" ? 1760 : (type === "fort" ? 1320 : (type === "sub" ? 660 : 880));
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(VOLUME_CLIC[type] || 0.20, t + 0.002);
+  g.gain.exponentialRampToValueAtTime(volumeClic(type), t + 0.002);
   g.gain.exponentialRampToValueAtTime(0.0001, t + (type === "sub" ? 0.028 : 0.045));
   o.connect(g); g.connect(maitre);
   o.start(t); o.stop(t + 0.06);
@@ -1485,6 +1524,370 @@ function bourdon(t, pc, duree){
     });
   });
 }
+
+/* ============================================================
+   5 bis. BOÎTE À RYTHMES
+   ============================================================
+   La moitié qui manquait au projet. Le moteur improvisait au-dessus
+   d'un métronome ; il improvise maintenant au-dessus d'une section
+   rythmique — mais le métronome ne disparaît pas, il se subordonne
+   (note 16 §5 nº 1 : coexistence, clic rabaissé).
+
+   ⚑ Ce qui est PUBLIC ici, c'est la FORME d'un groove : l'alphabet
+   des cases, la lecture de la grille, les timbres, le cycle. Les
+   relevés sous droits vivent dans corpus/grooves.json, derrière
+   Access, et n'ajoutent pas une capacité — ils ajoutent du
+   répertoire. Les six patrons ci-dessous sont de bien commun.
+   ------------------------------------------------------------ */
+
+/* Alphabet imposé par le schéma du métronome (note 01) — cinq états,
+   pas quatre : X accent · x attaque · - tenue · . vide · m étouffé.
+   ⚠️ « - » ne produit AUCUNE attaque : une percussion ne tient pas une
+   case, elle en occupe la durée. Il est légal, il ne sonne pas. */
+const CASES_LEGALES = "Xx-.m";
+const FORCE_CASE = {X:1, x:0.55, m:0.3};
+
+/* Les voix d'appui portent la pulsation ; le reste est garniture.
+   C'est cette table, et elle seule, que lit le curseur de densité —
+   pas le grade (note 16 §5 nº 3 : le groove est le contexte, pas
+   l'exercice). */
+const APPUI = {kick:true, snare:true, "cajon-grave":true};
+
+/* ⚑ battues ENTRE au schéma, défaut 4 (note 18 §2). Les 33 grooves du
+   métronome restent valides sans une seule modification : sans
+   battues ils valent 4, ce qu'ils sont déjà. Même mécanique
+   d'extension que « variantes » dans la note 01.
+   ⚠️ Conséquence : count:12 ne veut PLUS dire « ternaire ». 12/3 = 4
+   cases par temps, c'est du binaire — la valse. C'est casesParTemps
+   qui décide, jamais count seul. */
+function battuesGroove(g){ return (g && g.battues) ? (g.battues | 0) : 4; }
+function casesParTemps(g){
+  const b = battuesGroove(g);
+  return (g && g.count > 0 && b > 0) ? g.count / b : 0;
+}
+function metreCalcule(g){
+  const c = casesParTemps(g);
+  return (c > 0 && c % 3 === 0) ? "tern" : "bin";
+}
+
+/* Vérification d'un groove : rend la LISTE des reproches, vide si le
+   groove est légal. Un booléen ne dirait pas ce qui cloche, et c'est
+   ce que le banc doit pouvoir nommer. */
+function verifierGroove(g){
+  const p = [];
+  if(!g || typeof g !== "object") return ["groove absent"];
+  const b = battuesGroove(g);
+  if(!(g.count > 0)) p.push("count absent ou nul");
+  if(!(b > 0)) p.push("battues nulles");
+  if(g.count > 0 && b > 0 && g.count % b !== 0)
+    p.push("division non entière : count " + g.count + " sur " + b + " temps");
+  if(!Array.isArray(g.voix) || !g.voix.length) p.push("aucune voix");
+  (g.voix || []).forEach(function(v, k){
+    const nom = "voix " + k + " (" + (v && v.role ? v.role : "?") + ")";
+    if(!v || typeof v.grid !== "string"){ p.push(nom + " : pas de grille"); return; }
+    if(v.grid.length !== g.count)
+      p.push(nom + " : " + v.grid.length + " cases pour count " + g.count);
+    const vus = {};
+    for(let i=0;i<v.grid.length;i++){
+      const c = v.grid.charAt(i);
+      if(CASES_LEGALES.indexOf(c) < 0 && !vus[c]){ vus[c] = 1; p.push(nom + " : caractère « " + c + " » hors alphabet"); }
+    }
+    if(!TIMBRES[v.timbre]) p.push(nom + " : timbre inconnu « " + v.timbre + " »");
+  });
+  /* ⚑ metre est un SECOND dépositaire de la même vérité — le défaut que
+     RHO_RANGS documente. On le garde pour la lisibilité humaine, et on
+     exige qu'il concorde avec le calcul : une contradiction rougit au
+     lieu de se propager. */
+  if(g.count > 0 && b > 0 && g.count % b === 0 && g.metre && g.metre !== metreCalcule(g))
+    p.push("metre déclaré « " + g.metre + " » contre « " + metreCalcule(g) +
+           " » calculé (" + casesParTemps(g) + " cases par temps)");
+  if(g.min && g.max && g.min > g.max) p.push("min > max");
+  return p;
+}
+
+/* Les six patrons de bien commun. On en trouve l'équivalent dans
+   n'importe quelle méthode depuis un siècle ; aucun n'est un relevé.
+   ⭐ Les deux derniers ne sont pas du décor : la valse et le 6/8 sont
+   les seuls à rendre battues démontrable À L'USAGE, et pas seulement
+   au banc. */
+const GROOVES = [
+  {famille:"rock", id:"rk-base", label:"Rock de base",
+   count:16, battues:4, metre:"bin", min:60, max:132, jam:96,
+   voix:[{role:"grosse-caisse", timbre:"kick",  grid:"X.......X......."},
+         {role:"caisse-claire",  timbre:"snare", grid:"....X.......X..."},
+         {role:"charleston",     timbre:"hat",   grid:"x.x.x.x.x.x.x.x."}]},
+
+  {famille:"rock", id:"rk-croches", label:"Backbeat aux croches",
+   count:16, battues:4, metre:"bin", min:70, max:150, jam:104,
+   voix:[{role:"grosse-caisse", timbre:"kick",  grid:"X...x..X..x....."},
+         {role:"caisse-claire",  timbre:"snare", grid:"....X.......X..."},
+         {role:"charleston",     timbre:"hat",   grid:"x.x.x.x.x.x.x.x."},
+         {role:"charleston ouvert", timbre:"hat-ouvert", grid:"..............x."}]},
+
+  {famille:"blues", id:"sh-shuffle", label:"Shuffle",
+   count:12, battues:4, metre:"tern", min:60, max:132, jam:88,
+   voix:[{role:"grosse-caisse", timbre:"kick",  grid:"X.....X....."},
+         {role:"caisse-claire",  timbre:"snare", grid:"...X.....X.."},
+         {role:"charleston",     timbre:"hat",   grid:"x.xx.xx.xx.x"}]},
+
+  {famille:"bresil", id:"bo-simple", label:"Bossa élémentaire",
+   count:16, battues:4, metre:"bin", min:100, max:170, jam:132,
+   voix:[{role:"grosse-caisse", timbre:"kick",       grid:"X..x..X...x..X.."},
+         {role:"clave",          timbre:"clave",      grid:"..x...x...x.x..."},
+         {role:"balai",          timbre:"cajon-aigu", grid:"x.x.x.x.x.x.x.x."}]},
+
+  {famille:"valse", id:"va-trois", label:"Valse — trois temps",
+   count:12, battues:3, metre:"bin", min:80, max:180, jam:120,
+   voix:[{role:"grosse-caisse", timbre:"kick",  grid:"X..........."},
+         {role:"caisse-claire",  timbre:"snare", grid:"....x...x..."},
+         /* ⭐ le charleston aux croches : même count:12 que le shuffle, mais
+            les cases tombent aux DEMIS de temps, pas aux tiers. C'est ce que
+            battues change, et ça ne s'entend nulle part ailleurs. */
+         {role:"charleston",     timbre:"hat",   grid:"x.x.x.x.x.x."}]},
+
+  {famille:"six-huit", id:"sh-six-huit", label:"6/8 senti à deux",
+   count:12, battues:2, metre:"tern", min:50, max:110, jam:76,
+   voix:[{role:"cajón grave",  timbre:"cajon-grave", grid:"X.....X....."},
+         {role:"cajón aigu",   timbre:"cajon-aigu",  grid:"..x.x...x.x."},
+         {role:"cloche",        timbre:"clave",       grid:"X..x.xX..x.x"}]}
+];
+
+/* Le corpus privé entre par ici, et par nulle part ailleurs : mêmes
+   gardes, même alphabet. Un groove refusé est DIT, jamais avalé. */
+function poserGrooves(liste){
+  const pris = [], refus = [];
+  (Array.isArray(liste) ? liste : []).forEach(function(g){
+    const p = verifierGroove(g);
+    if(p.length){ refus.push({id:(g && g.id) || "?", reproches:p}); return; }
+    const i = GROOVES.map(function(x){ return x.id; }).indexOf(g.id);
+    if(i >= 0) GROOVES[i] = g; else GROOVES.push(g);
+    pris.push(g.id);
+  });
+  return {pris:pris, refus:refus};
+}
+
+/* ── Les timbres, synthétisés — ni échantillon, ni SoundFont, ni base64
+   de .wav : la règle qui a écarté Tone.js vaut aussi pour la peau des
+   tambours. Tout passe par `maitre` et jamais par ctx.destination :
+   c'est ce qui fait qu'arreter() éteint aussi la batterie, sans une
+   ligne de plus. ──────────────────────────────────────────────── */
+
+/* ⚠️ UN seul tampon de bruit, fabriqué une fois. Le refaire à chaque
+   frappe, c'est allouer quelques milliers d'échantillons seize fois
+   par mesure pour un résultat identique. */
+let bruit = null;
+function initBruit(){
+  if(bruit || !ctx) return;
+  const n = Math.floor(ctx.sampleRate * 0.5);
+  bruit = ctx.createBuffer(1, n, ctx.sampleRate);
+  const d = bruit.getChannelData(0);
+  for(let i=0;i<n;i++) d[i] = Math.random() * 2 - 1;
+}
+function sourceBruit(t, duree){
+  const s = ctx.createBufferSource();
+  s.buffer = bruit;
+  s.loop = true;
+  s.start(t); s.stop(t + duree + 0.02);
+  return s;
+}
+function enveloppe(t, niveau, duree){
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(Math.max(0.0002, niveau), t + 0.003);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + duree);
+  g.connect(maitre);
+  return g;
+}
+const NIVEAU_PERCU = {
+  kick:0.22, snare:0.15, hat:0.055, "hat-ouvert":0.05,
+  clave:0.10, "cajon-grave":0.16, "cajon-aigu":0.065
+};
+/* ⭐ La descente de hauteur EST le coup de batte. Sans elle on entend
+   une note de basse, pas une grosse caisse. */
+function tKick(t, n, etouffe){
+  const d = etouffe ? 0.09 : 0.18;
+  const o = ctx.createOscillator(), g = enveloppe(t, n, d);
+  o.type = "sine";
+  o.frequency.setValueAtTime(150, t);
+  o.frequency.exponentialRampToValueAtTime(50, t + 0.04);
+  o.connect(g); o.start(t); o.stop(t + d + 0.02);
+}
+/* Le bruit seul fait « pschh », le sinus seul fait « tom » : c'est le
+   mélange qui fait la caisse claire. */
+function tSnare(t, n, etouffe){
+  const d = etouffe ? 0.06 : 0.13;
+  const g = enveloppe(t, n, d);
+  const f = ctx.createBiquadFilter();
+  f.type = "bandpass"; f.frequency.value = 1800; f.Q.value = 1;
+  f.connect(g);
+  sourceBruit(t, d).connect(f);
+  const o = ctx.createOscillator(), g2 = enveloppe(t, n * 0.5, d * 0.5);
+  o.type = "triangle"; o.frequency.value = 180;
+  o.connect(g2); o.start(t); o.stop(t + d);
+}
+function chapeau(t, n, duree){
+  const g = enveloppe(t, n, duree);
+  const f = ctx.createBiquadFilter();
+  f.type = "highpass"; f.frequency.value = 7000;
+  f.connect(g);
+  sourceBruit(t, duree).connect(f);
+}
+function tHat(t, n, etouffe){ chapeau(t, n, etouffe ? 0.018 : 0.03); }
+function tHatOuvert(t, n, etouffe){ chapeau(t, n, etouffe ? 0.09 : 0.25); }
+/* La famille afro-cubaine ne se joue pas au kit : deux sinus courts. */
+function tClave(t, n){
+  [1200, 2500].forEach(function(f, k){
+    const o = ctx.createOscillator(), g = enveloppe(t, n * (k ? 0.6 : 1), 0.025);
+    o.type = "sine"; o.frequency.value = f;
+    o.connect(g); o.start(t); o.stop(t + 0.04);
+  });
+}
+function tCajonGrave(t, n, etouffe){
+  const d = etouffe ? 0.07 : 0.14;
+  const o = ctx.createOscillator(), g = enveloppe(t, n, d);
+  o.type = "sine"; o.frequency.value = 120;
+  o.connect(g); o.start(t); o.stop(t + d + 0.02);
+}
+function tCajonAigu(t, n, etouffe){
+  const d = etouffe ? 0.025 : 0.05;
+  const g = enveloppe(t, n, d);
+  const f = ctx.createBiquadFilter();
+  f.type = "highpass"; f.frequency.value = 4000;
+  f.connect(g);
+  sourceBruit(t, d).connect(f);
+}
+const TIMBRES = {
+  kick:tKick, snare:tSnare, hat:tHat, "hat-ouvert":tHatOuvert,
+  clave:tClave, "cajon-grave":tCajonGrave, "cajon-aigu":tCajonAigu
+};
+function percu(t, timbre, force, etouffe){
+  const f = TIMBRES[timbre];
+  if(!f || !ctx || !maitre) return;
+  if(!bruit) initBruit();   /* contexte posé ailleurs qu'en initAudio */
+  f(t, (NIVEAU_PERCU[timbre] || 0.1) * (force || 1), !!etouffe);
+}
+
+/* ── Ce que la batterie joue, et quand ─────────────────────────── */
+
+/* ⚑ Aucun repli silencieux. Un groove qui ne colle pas à la mesure
+   courante n'est pas étiré, ni cyclé, ni remplacé par un autre : il
+   ne joue pas. Lire les cases au temps en cyclant ne refusait rien,
+   mais une mesure à 3 y perdait son backbeat sur 4 — faux, et
+   silencieusement faux. */
+function grooveCourant(){
+  const g = GROOVES.filter(function(x){ return x.id === etat.groove; })[0];
+  if(!g) return null;
+  if(battuesGroove(g) !== (etat.battues | 0)) return null;
+  return verifierGroove(g).length ? null : g;
+}
+function groovesCompatibles(battues){
+  const b = battues | 0;
+  return GROOVES.filter(function(g){
+    return battuesGroove(g) === b && !verifierGroove(g).length;
+  });
+}
+/* Armée : l'interrupteur est mis ET un groove tient la mesure. C'est
+   ce drapeau — pas le gap — qui rabaisse le clic : un niveau de clic
+   qui sauterait à chaque gap s'entendrait comme une panne. */
+function batterieArmee(){ return !!etat.batterie && !!grooveCourant(); }
+/* Le gap appliqué à la section rythmique : la parade documentée à
+   l'objection Friedland (« la boîte à rythmes te tire par la
+   manche »). Le retrait programmé du support fait travailler la
+   pulsation intérieure au lieu de la remplacer.
+   ⚠️ Il n'existe que quand la couche impro tient un gap : sans tour
+   de parole, un silence de batterie n'est pas une consigne, c'est
+   une panne. */
+function batterieMuette(){
+  if(!etat.batterieGap || !etat.impro || etat.atelier || (etat.imprGap | 0) <= 0) return false;
+  return !etatImpro(Math.max(0, imprMesure)).demo;
+}
+function batterieJoue(){ return batterieArmee() && !batterieMuette(); }
+
+/* Les cases d'UN temps, en fraction de temps. Pur, sans audio et sans
+   horloge : c'est cette fonction que le banc éprouve. */
+function casesDuTemps(g, bt, densite){
+  const out = [];
+  const c = casesParTemps(g);
+  if(!g || !Array.isArray(g.voix) || !(c > 0)) return out;
+  if(bt < 0 || bt >= battuesGroove(g)) return out;
+  const d = Math.max(1, Math.min(3, densite | 0 || 3));
+  g.voix.forEach(function(v){
+    if(typeof v.grid !== "string" || v.grid.length !== g.count) return;
+    const appui = !!APPUI[v.timbre];
+    if(d === 1 && !appui) return;
+    for(let k=0;k<c;k++){
+      const ch = v.grid.charAt(bt * c + k);
+      if(ch !== "X" && ch !== "x" && ch !== "m") continue;
+      if(d === 1 && ch !== "X") continue;
+      if(d === 2 && ch === "m") continue;
+      if(d === 2 && !appui && k !== 0) continue;
+      out.push({timbre:v.timbre, role:v.role, off:k / c,
+                force:FORCE_CASE[ch], etouffe:ch === "m"});
+    }
+  });
+  return out;
+}
+
+/* Le plan de la batterie AU TEMPS i — pur lui aussi. percuPasser() ne
+   fait que le programmer, et c'est ce qui rend le gap, la coupure et
+   les marqueurs de restitution assertables sans un seul son. */
+function planPercu(i){
+  if(!batterieJoue() || !timeline.length) return [];
+  const b = timeline[i];
+  if(!b) return [];
+  const g = grooveCourant();
+  const ten = b.accord ? b.accord.tenue : "normal";
+  /* C. : tout se tait. C... : la nappe tient, la section rythmique
+     s'efface derrière — c'est le sens même du marqueur. */
+  if(ten === "silence" || ten === "tenue") return [];
+  const cases = casesDuTemps(g, b.temps, etat.grooveDensite);
+  /* C.. : un seul coup sec, sur le temps du marquage, et plus rien
+     jusqu'à l'accord suivant. */
+  if(ten === "frappe"){
+    if(!b.debutAccord) return [];
+    return cases.filter(function(c){ return c.off === 0; });
+  }
+  return cases;
+}
+function percuPasser(t, i, parTemps){
+  if(!ctx || !maitre) return;
+  planPercu(i).forEach(function(c){
+    percu(t + c.off * parTemps, c.timbre, c.force, c.etouffe);
+  });
+}
+
+/* ── X13 joué : le où est sur l'accord, le combien est un profil ──
+   Mesuré sur 1 743 styles (note 01) : c'est l'interprétation de la
+   croche qui décide du montant, pas le genre. Ticks entiers à 120 par
+   temps, et le moteur divise UNE fois, ici. */
+const PROFIL_PUSH = {
+  bin:  {push8:59, push16:28, ticks:120},
+  tern: {push8:38, push16:20, ticks:120}
+};
+function regimeCroche(){
+  /* ⚑ Un groove QUI NE JOUE PAS ne décide de rien. Sans lui, c'est la
+     subdivision affichée qui dit le régime — le seul autre endroit du
+     moteur où la croche est déclarée. */
+  const g = batterieArmee() ? grooveCourant() : null;
+  if(g) return metreCalcule(g);
+  return etat.subdivision === 3 ? "tern" : "bin";
+}
+/* Avance en FRACTION DE TEMPS. Plafonnée à trois quarts de temps :
+   au-delà, l'accord ne serait plus anticipé, il serait déplacé. */
+function avancePush(a){
+  if(!a || !a.push) return 0;
+  const p = PROFIL_PUSH[regimeCroche()] || PROFIL_PUSH.bin;
+  return Math.min(0.75, (a.push >= 2 ? p.push16 : p.push8) / p.ticks);
+}
+/* La nappe, marqueur de restitution compris. Le groove, lui, n'est
+   jamais touché : la grille rythmique ne connaît pas les accords. */
+function padAccord(t, a, duree){
+  if(!a) return;
+  if(a.tenue === "silence") return;
+  if(a.tenue === "frappe"){ pad(t, a, Math.min(0.25, duree)); return; }
+  pad(t, a, duree);
+}
+
 function ordonnanceur(){
   if(!ctx || !timeline.length) return;
   const parTemps = 60 / etat.tempo;
@@ -1499,10 +1902,25 @@ function ordonnanceur(){
       /* subdivisions : le temps reste l'unité de la timeline, seul le clic se divise */
       const sub = etat.subdivision === 3 ? 3 : (etat.subdivision === 2 ? 2 : 1);
       for(let k=1;k<sub;k++) clic(prochainTemps + parTemps * k / sub, "sub");
-      if(b.debutAccord) pad(prochainTemps, b.accord, parTemps * dureeAccord(pointeur));
+      /* X13 joué. Une anticipation se programme AU TEMPS PRÉCÉDENT : jusqu'à
+         un demi-temps d'avance, elle sort de la fenêtre de 0,12 s si on
+         l'attend sur son propre temps. Le groove, lui, ne bouge pas d'une
+         case — la grille rythmique ne connaît pas les accords. */
+      if(b.debutAccord && (avancePush(b.accord) === 0 || !padAmorce))
+        padAccord(prochainTemps, b.accord, parTemps * dureeAccord(pointeur));
+      padAmorce = true;
+      const j = (pointeur + 1) % timeline.length;
+      const bs = timeline[j], av = bs && bs.debutAccord ? avancePush(bs.accord) : 0;
+      if(av > 0) padAccord(prochainTemps + parTemps * (1 - av), bs.accord, parTemps * dureeAccord(j));
       /* la démonstration jouée passe par la même fenêtre d'anticipation
          que le clic et la nappe : un seul horloge, une seule avance */
       imprPasser(prochainTemps, pointeur, parTemps);
+      /* ⚑ percuPasser APRÈS imprPasser, et l'ordre n'est pas décoratif :
+         c'est imprPasser qui fait avancer imprMesure, dont le gap batterie
+         lit l'état. Inversé, le retrait de la batterie commence un temps
+         trop tard et finit un temps trop tôt — et le banc le fait rougir,
+         il l'a déjà fait. */
+      percuPasser(prochainTemps, pointeur, parTemps);
       fileAttente.push({i:pointeur, t:prochainTemps});
     }
     prochainTemps += parTemps;
@@ -1545,7 +1963,7 @@ async function demarrer(){
   enMarche = true;
   /* Seul endroit, avec la fin de séance, où l'affichage gelé est relâché :
      on repart du haut de boucle, la première image sera peinte au temps 0. */
-  pointeur = 0; tempsAffiche = -1; fileAttente = [];
+  pointeur = 0; tempsAffiche = -1; fileAttente = []; padAmorce = false;
   reinitImpro();
   prochainTemps = ctx.currentTime + 0.08;
   if(etat.duree > 0 && restant <= 0) restant = etat.duree;
@@ -2790,6 +3208,7 @@ function choisirMorceau(i){
   etat.contrainte = "";
   document.getElementById("battues").value = String(etat.battues);
   document.getElementById("subdivision").value = String(etat.subdivision);
+  majBatterie();
   document.getElementById("gamme").value = etat.gamme;
   document.getElementById("saisieAccords").value = m.mesures;
   peindreTempo(); rendreGrades(); majChampGamme();
@@ -2956,7 +3375,8 @@ const BASCULES = [
   ["basPad","pad"], ["basBourdon","bourdon"], ["basClic","clic"],
   ["basMiroir","miroir"], ["basCoach","coach"], ["basPupitre","pupitre"],
   ["basImpro","impro"], ["basImprH","imprHarmonie"], ["basImprR","imprRythme"],
-  ["basImprM","imprMelodie"], ["basImprManche","imprManche"]
+  ["basImprM","imprMelodie"], ["basImprManche","imprManche"],
+  ["basBatterie","batterie"], ["basBatterieGap","batterieGap"]
 ];
 function remplirSelects(){
   const t = document.getElementById("tonique");
@@ -2978,6 +3398,33 @@ function remplirSelects(){
   if(eg) eg.value = String(etat.imprGap);
   const es = document.getElementById("imprSuite");
   if(es) es.value = etat.imprSuite;
+  const ed = document.getElementById("grooveDensite");
+  if(ed) ed.value = String(etat.grooveDensite);
+  majBatterie();
+}
+/* Le select ne propose QUE les grooves compatibles avec la mesure
+   courante. Quand aucun ne l'est, la batterie se tait et le clic reste —
+   c'est dit à l'écran, pas deviné à l'oreille. */
+function majBatterie(){
+  const c = document.getElementById("champBatterie");
+  if(c) c.hidden = !etat.batterie;
+  const s = document.getElementById("groove"), a = document.getElementById("aideGroove");
+  if(!s) return;
+  const dispo = groovesCompatibles(etat.battues);
+  s.innerHTML = dispo.map(function(g){
+    return '<option value="' + g.id + '">' + g.label + " — " + g.famille +
+           " (" + (metreCalcule(g) === "tern" ? "ternaire" : "binaire") + ")</option>";
+  }).join("");
+  if(dispo.length){
+    if(!dispo.some(function(g){ return g.id === etat.groove; })) etat.groove = dispo[0].id;
+    s.value = etat.groove;
+    s.disabled = false;
+  }else{
+    s.disabled = true;
+  }
+  if(a) a.textContent = dispo.length
+    ? dispo.length + " groove" + (dispo.length > 1 ? "s" : "") + " pour " + etat.battues + " temps."
+    : "Aucun groove pour " + etat.battues + " temps : la batterie se tait, le clic reste.";
 }
 function brancher(){
   document.getElementById("btnJouer").addEventListener("click", basculer);
@@ -3082,12 +3529,20 @@ function brancher(){
     }
     etat.battues = neuf;
     etat.mesures = r.mesures;
+    /* la métrique a changé : les grooves compatibles aussi */
+    majBatterie();
     document.getElementById("msgErreur").hidden = true;
     reconstruire();
   });
   document.getElementById("subdivision").addEventListener("change", function(){
     etat.subdivision = parseInt(this.value, 10) || 1;
     sauver();
+  });
+  document.getElementById("groove").addEventListener("change", function(){
+    etat.groove = this.value; sauver();
+  });
+  document.getElementById("grooveDensite").addEventListener("change", function(){
+    etat.grooveDensite = parseInt(this.value, 10) || 3; sauver();
   });
   document.getElementById("zone").addEventListener("change", function(){
     /* la fenêtre affichée entre dans le choix de la forme : on repart de zéro
@@ -3141,6 +3596,7 @@ function brancher(){
       /* toute retouche d'une couche rend le plan courant caduc : on ne
          garde jamais une phrase planifiée sous d'autres règles */
       if(p[1].slice(0, 4) === "impr" || p[1] === "impro"){ majImpro(); peindreImpro(-1); }
+      if(p[1] === "batterie") majBatterie();
       sauver();
     });
   });
@@ -3183,7 +3639,12 @@ if(typeof module !== "undefined" && module.exports){
                     plusProche, reinitImpro, majImpro, peindreImpro, MIDI_BAS, MIDI_HAUT,
                     coachEffacer, coachTop, majCoach, coach, resoudreCible, distanceChangement, positionsChemin,
                     TRIADES, JEUX, RENVERSEMENTS, PALIERS, formeTriade, harmoniserGamme, nashville,
-                    triadeDeAccord, triadeAtelier, palier, etat, marques};
+                    triadeDeAccord, triadeAtelier, palier, etat, marques,
+                    GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEAU_PERCU,
+                    battuesGroove, casesParTemps, metreCalcule, verifierGroove, poserGrooves,
+                    grooveCourant, groovesCompatibles, batterieArmee, batterieMuette,
+                    batterieJoue, casesDuTemps, planPercu, majBatterie,
+                    PROFIL_PUSH, regimeCroche, avancePush, volumeClic, VOLUME_CLIC, VOLUME_CLIC_BAS};
 }
 </script>
 </body>
