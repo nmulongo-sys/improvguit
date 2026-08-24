@@ -592,10 +592,27 @@ win.eval(`
       type:"", connect:function(){}, start:function(){}, stop:function(){}
     };
   }
+  /* Le tampon de bruit : trois percussions sur sept ne sont QUE du bruit
+     filtré et ne créent aucun oscillateur. Sans ces deux méthodes ici, une
+     frappe qui sonnerait par erreur dans une série d'avant ferait CRASHER
+     le banc au lieu de le faire rougir — et un banc qui crashe cache les
+     autres rouges. */
+  window.__versDestination = 0;
   window.__faireCtx = function(){
-    return {
+    const c = {
       currentTime:0,
+      sampleRate:44100,
       destination:{},
+      createBuffer:function(ch, n){
+        const d = new Float32Array(n);
+        return { getChannelData:function(){ return d; }, length:n };
+      },
+      createBufferSource:function(){
+        return { buffer:null, loop:false,
+          connect:function(d){ if(d === c.destination) window.__versDestination++; },
+          start:function(t){ window.__evts.push({t:t, f:-1, forme:"bruit"}); },
+          stop:function(){} };
+      },
       createGain:__noeud,
       createBiquadFilter:function(){
         const f = __noeud();
@@ -613,6 +630,7 @@ win.eval(`
         return o;
       }
     };
+    return c;
   };
 `);
 
@@ -2284,6 +2302,519 @@ const I = win.eval("({poserAlea, graine, FIGURES, DENSITE, GESTE_GRADE," +
   I.reinitImpro();
 })();
 
+
+/* ------------------------------------------------------------------
+   20. LA BOÎTE À RYTHMES — le groove, la métrique, le gap, X13 joué
+   ------------------------------------------------------------------
+   Doctrine bloc.js : le moteur s'éprouve sur des figures FABRIQUÉES,
+   y compris illégales. Aucun corpus ne contient un groove de 16 cases
+   sur trois temps, ni une grille avec un « ? » dedans, ni un metre
+   qui contredit son propre count — c'est pourtant là que ça casse,
+   et en silence.
+   ⚑ La série « coupée » compare des NOMBRES des deux côtés : une
+   assertion qui passe que la batterie soit mise ou non ne teste rien.
+   ------------------------------------------------------------------ */
+const BR = win.eval("({GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEAU_PERCU," +
+  " battuesGroove, casesParTemps, metreCalcule, verifierGroove, poserGrooves," +
+  " grooveCourant, groovesCompatibles, batterieArmee, batterieMuette, batterieJoue," +
+  " casesDuTemps, planPercu, majBatterie, PROFIL_PUSH, regimeCroche, avancePush," +
+  " volumeClic, VOLUME_CLIC, VOLUME_CLIC_BAS, percuPasser, initBruit})");
+
+(function () {
+  const memo = {
+    saisie: F.etat.saisie, battues: F.etat.battues, sub: F.etat.subdivision,
+    tempo: F.etat.tempo, clic: F.etat.clic, pad: F.etat.pad, bourdon: F.etat.bourdon
+  };
+
+  /* ---- 20.1 Le schéma, et les six grooves publics ------------------ */
+
+  eq("six grooves publics embarqués", BR.GROOVES.length, 6);
+  BR.GROOVES.forEach(function (g) {
+    const p = BR.verifierGroove(g);
+    t("groove légal : " + g.id + (p.length ? " — " + p.join(" · ") : ""), p.length === 0);
+  });
+  t("aucun nom d'auteur dans le vocabulaire de grooves",
+    !/santos|martinez|pellecuer|dworsky|brundage|fisher|nelson/i.test(JSON.stringify(BR.GROOVES)));
+  eq("l'alphabet imposé compte cinq états", BR.CASES_LEGALES.length, 5);
+
+  /* ⭐ battues au schéma, défaut 4 : les 33 grooves du métronome restent
+     valides sans une seule modification. C'est la non-régression, et elle
+     doit être verte d'emblée. */
+  eq("un groove sans battues vaut 4 temps", BR.battuesGroove({count:16}), 4);
+  eq("un groove sans battues : 4 cases par temps",
+    BR.casesParTemps({count:16, voix:[]}), 4);
+  eq("un groove sans battues en 12 cases : ternaire",
+    BR.metreCalcule({count:12, voix:[]}), "tern");
+
+  /* la table de la note 18 §2, ligne par ligne */
+  const TABLE = [
+    [16, 4, 4, "bin",  "le cas classique"],
+    [12, 4, 3, "tern", "le cas classique"],
+    [12, 3, 4, "bin",  "la valse"],
+    [12, 2, 6, "tern", "le 6/8 senti à deux"],
+    [12, 6, 2, "bin",  "le 6/8 compté à six"],
+    [16, 2, 8, "bin",  "légal, mais très fin"]
+  ];
+  TABLE.forEach(function (l) {
+    const g = {count:l[0], battues:l[1], voix:[]};
+    eq("count " + l[0] + " sur " + l[1] + " temps : " + l[2] + " cases/temps (" + l[4] + ")",
+      BR.casesParTemps(g), l[2]);
+    eq("count " + l[0] + " sur " + l[1] + " temps : " + l[3], BR.metreCalcule(g), l[3]);
+  });
+  /* ⚑ Le cœur de l'arbitrage : count:12 ne veut PLUS dire ternaire. */
+  t("12 cases sur 3 temps est BINAIRE, pas ternaire",
+    BR.metreCalcule({count:12, battues:3}) === "bin" &&
+    BR.metreCalcule({count:12, battues:4}) === "tern");
+
+  /* ---- 20.1 bis Ce qui doit être refusé --------------------------- */
+  function refus(nom, g, motif) {
+    const p = BR.verifierGroove(g);
+    t("refusé — " + nom + (p.length ? "" : " (ACCEPTÉ À TORT)"), p.length > 0);
+    if (motif) t("refusé pour la bonne raison — " + nom,
+      p.some(function (x) { return x.indexOf(motif) >= 0; }));
+  }
+  const OK = {role:"x", timbre:"kick", grid:"X..............."};
+  refus("count:16 sur 3 temps", {count:16, battues:3, voix:[OK]}, "division non entière");
+  refus("count:16 sur 6 temps", {count:16, battues:6, voix:[OK]}, "division non entière");
+  refus("count absent", {battues:4, voix:[OK]}, "count");
+  refus("aucune voix", {count:16, battues:4, voix:[]}, "aucune voix");
+  refus("voix absente", {count:16, battues:4}, "aucune voix");
+  refus("grille plus courte que count",
+    {count:16, battues:4, voix:[{role:"x", timbre:"kick", grid:"X..."}]}, "cases pour count");
+  refus("grille plus longue que count",
+    {count:12, battues:4, voix:[{role:"x", timbre:"kick", grid:"X..............."}]}, "cases pour count");
+  refus("caractère hors alphabet",
+    {count:16, battues:4, voix:[{role:"x", timbre:"kick", grid:"X..?............"}]}, "hors alphabet");
+  refus("timbre inconnu",
+    {count:16, battues:4, voix:[{role:"x", timbre:"tambourin", grid:"X..............."}]}, "timbre inconnu");
+  refus("tempo min supérieur à max",
+    {count:16, battues:4, min:140, max:60, voix:[OK]}, "min > max");
+  /* ⭐ metre est un second dépositaire de la même vérité : on exige qu'il
+     concorde, sinon la contradiction se propage en silence. */
+  refus("metre déclaré tern sur 4 cases par temps",
+    {count:16, battues:4, metre:"tern", voix:[OK]}, "metre déclaré");
+  refus("metre déclaré bin sur la valse mal comptée",
+    {count:12, battues:4, metre:"bin", voix:[{role:"x", timbre:"kick", grid:"X..........."}]}, "metre déclaré");
+  t("le groove sans metre déclaré est légal",
+    BR.verifierGroove({count:12, battues:3, voix:[{role:"x", timbre:"kick", grid:"X..........."}]}).length === 0);
+
+  /* les cinq états de l'alphabet passent, y compris la tenue et l'étouffé */
+  t("- (tenue) et m (étouffé) sont légaux",
+    BR.verifierGroove({count:8, battues:2, voix:[{role:"x", timbre:"hat", grid:"Xx-.mX-."}]}).length === 0);
+
+  /* ---- 20.1 ter Le corpus privé entre par une seule porte --------- */
+  (function () {
+    const avant = BR.GROOVES.length;
+    const r = BR.poserGrooves([
+      {famille:"essai", id:"zz-essai", label:"Essai", count:8, battues:2, metre:"bin",
+       voix:[{role:"x", timbre:"kick", grid:"X...X..."}]},
+      {famille:"essai", id:"zz-faux", label:"Faux", count:16, battues:3,
+       voix:[{role:"x", timbre:"kick", grid:"X..............."}]}
+    ]);
+    eq("un groove légal du corpus entre", r.pris.join(), "zz-essai");
+    eq("un groove illégal est refusé", r.refus.length, 1);
+    t("le refus est DIT, pas avalé",
+      !!r.refus[0] && r.refus[0].reproches.length > 0 && r.refus[0].id === "zz-faux");
+    eq("un seul groove ajouté", BR.GROOVES.length, avant + 1);
+    BR.GROOVES.pop();
+    eq("corpus d'essai retiré", BR.GROOVES.length, avant);
+  })();
+
+  /* ---- 20.2 Les cases : elles tombent pile ------------------------ */
+
+  /* toutes les frappes d'une mesure, en position ABSOLUE (en temps) */
+  function mesure(g, densite) {
+    const out = [];
+    for (let bt = 0; bt < BR.battuesGroove(g); bt++) {
+      BR.casesDuTemps(g, bt, densite === undefined ? 3 : densite).forEach(function (c) {
+        out.push({ pos: bt + c.off, timbre: c.timbre, force: c.force, etouffe: c.etouffe });
+      });
+    }
+    return out;
+  }
+  function frappesEcrites(g) {
+    let n = 0;
+    g.voix.forEach(function (v) {
+      for (let i = 0; i < v.grid.length; i++) if ("Xxm".indexOf(v.grid.charAt(i)) >= 0) n++;
+    });
+    return n;
+  }
+  BR.GROOVES.forEach(function (g) {
+    const m = mesure(g);
+    eq("autant de frappes que la grille en écrit : " + g.id, m.length, frappesEcrites(g));
+    const c = BR.casesParTemps(g);
+    t("les cases tombent pile sur la grille : " + g.id,
+      m.every(function (x) { return Math.abs(x.pos * c - Math.round(x.pos * c)) < 1e-9; }));
+    t("aucune case ne déborde de la mesure : " + g.id,
+      m.every(function (x) { return x.pos >= 0 && x.pos < BR.battuesGroove(g); }));
+    const vus = {};
+    let double = false;
+    m.forEach(function (x) {
+      const k = x.timbre + "@" + x.pos.toFixed(6);
+      if (vus[k]) double = true;
+      vus[k] = 1;
+    });
+    t("jamais deux frappes de la même voix au même instant : " + g.id, !double);
+  });
+
+  /* ⭐ Ternaire, valse, 6/8 : les trois cas que la métrique déclarée rend
+     possibles, et que count seul ne saurait pas distinguer. */
+  function offsDe(id) {
+    const g = BR.GROOVES.filter(function (x) { return x.id === id; })[0];
+    const s = {};
+    mesure(g).forEach(function (x) { s[(x.pos - Math.floor(x.pos)).toFixed(4)] = 1; });
+    return Object.keys(s).sort().join(" ");
+  }
+  eq("shuffle (12/4) : les cases aux TIERS de temps — 1 et 3 du triolet",
+    offsDe("sh-shuffle"), "0.0000 0.6667");
+  t("shuffle : aucune case hors des tiers",
+    offsDe("sh-shuffle").split(" ").every(function (o) {
+      return Math.abs(Number(o) * 3 - Math.round(Number(o) * 3)) < 1e-3;
+    }));
+  /* ⭐ Même count:12 que le shuffle, et pourtant binaire : c'est battues,
+     et rien d'autre, qui fait la différence. */
+  eq("valse (12/3) : les cases aux DEMIS de temps — binaire", offsDe("va-trois"), "0.0000 0.5000");
+  t("valse : toutes les cases sont des multiples d'un quart de temps",
+    offsDe("va-trois").split(" ").every(function (o) {
+      return Math.abs(Number(o) * 4 - Math.round(Number(o) * 4)) < 1e-3;
+    }));
+  t("6/8 (12/2) : les cases aux SIXIÈMES de temps",
+    offsDe("sh-six-huit").split(" ").every(function (o) {
+      return Math.abs(Number(o) * 6 - Math.round(Number(o) * 6)) < 1e-3;
+    }));
+  t("la valse ne tombe jamais sur un tiers de temps",
+    offsDe("va-trois").indexOf("0.3333") < 0 && offsDe("va-trois").indexOf("0.6667") < 0);
+  t("shuffle et valse ont le MÊME count et des cases différentes",
+    BR.GROOVES.filter(function (g) { return g.id === "sh-shuffle"; })[0].count ===
+    BR.GROOVES.filter(function (g) { return g.id === "va-trois"; })[0].count &&
+    offsDe("sh-shuffle") !== offsDe("va-trois"));
+
+  /* la tenue « - » occupe la case sans frapper */
+  (function () {
+    const g = {count:8, battues:2, voix:[{role:"x", timbre:"kick", grid:"X---x---"}]};
+    eq("« - » ne produit aucune attaque", mesure(g).length, 2);
+  })();
+  /* un temps hors mesure ne rend rien */
+  eq("un temps au-delà de la mesure ne rend aucune case",
+    BR.casesDuTemps(BR.GROOVES[0], 4, 3).length, 0);
+  eq("un temps négatif ne rend aucune case",
+    BR.casesDuTemps(BR.GROOVES[0], -1, 3).length, 0);
+  eq("un groove absent ne rend aucune case", BR.casesDuTemps(null, 0, 3).length, 0);
+
+  /* ---- 20.2 bis Le curseur de densité, séparé du grade ------------ */
+  (function () {
+    function cle(x) { return x.timbre + "@" + x.pos.toFixed(4); }
+    BR.GROOVES.forEach(function (g) {
+      const d1 = mesure(g, 1).map(cle), d2 = mesure(g, 2).map(cle), d3 = mesure(g, 3).map(cle);
+      t("densité monotone 1 ⊆ 2 : " + g.id, d1.every(function (k) { return d2.indexOf(k) >= 0; }));
+      t("densité monotone 2 ⊆ 3 : " + g.id, d2.every(function (k) { return d3.indexOf(k) >= 0; }));
+      t("le squelette n'ajoute jamais rien : " + g.id, d1.length <= d3.length);
+      t("le squelette ne garde que des voix d'appui : " + g.id,
+        mesure(g, 1).every(function (x) { return !!BR.APPUI[x.timbre]; }));
+      t("le squelette ne garde que des accents : " + g.id,
+        mesure(g, 1).every(function (x) { return x.force === BR.FORCE_CASE.X; }));
+    });
+    t("le curseur de densité est indépendant du grade",
+      JSON.stringify(mesure(BR.GROOVES[0], 3)) !== JSON.stringify(mesure(BR.GROOVES[0], 1)));
+  })();
+
+  /* ---- 20.3 Dans le moteur : armée, compatible, coupée ------------ */
+
+  function poser(txt, battues, groove, opts) {
+    opts = opts || {};
+    F.etat.battues = battues;
+    F.etat.subdivision = 1;
+    F.etat.tonalite = "";
+    F.etat.atelier = false;
+    F.etat.impro = ("impro" in opts) ? opts.impro : false;
+    F.etat.imprGap = ("gap" in opts) ? opts.gap : 0;
+    F.etat.batterie = ("batterie" in opts) ? opts.batterie : true;
+    F.etat.batterieGap = ("batterieGap" in opts) ? opts.batterieGap : true;
+    F.etat.groove = groove;
+    F.etat.grooveDensite = 3;
+    const r = F.lireBoucle(txt, battues);
+    F.etat.mesures = r.mesures;
+    F.construireTimeline();
+  }
+  function frappesTimeline() {
+    let n = 0;
+    for (let i = 0; i < F.timeline.length; i++) n += BR.planPercu(i).length;
+    return n;
+  }
+
+  poser("C | G", 4, "rk-base");
+  t("groove compatible : la batterie est armée", BR.batterieArmee() === true);
+  t("la batterie joue", BR.batterieJoue() === true);
+  eq("deux mesures de rock de base : deux fois la grille",
+    frappesTimeline(), 2 * frappesEcrites(BR.GROOVES[0]));
+
+  /* ⚑ Groove incompatible avec la mesure : la batterie SE TAIT, elle ne
+     s'étire pas et ne cycle pas. Le clic, lui, reste. */
+  poser("C | G", 3, "rk-base");
+  t("groove à 4 temps sur une mesure à 3 : aucun groove courant", BR.grooveCourant() === null);
+  t("groove incompatible : la batterie n'est pas armée", BR.batterieArmee() === false);
+  eq("groove incompatible : aucune frappe", frappesTimeline(), 0);
+  t("groove incompatible : le clic revient à son niveau haut",
+    BR.volumeClic("chgt") === BR.VOLUME_CLIC.chgt);
+  eq("la valse est proposée pour trois temps",
+    BR.groovesCompatibles(3).map(function (g) { return g.id; }).join(), "va-trois");
+  eq("le 6/8 est proposé pour deux temps",
+    BR.groovesCompatibles(2).map(function (g) { return g.id; }).join(), "sh-six-huit");
+  eq("quatre grooves pour quatre temps", BR.groovesCompatibles(4).length, 4);
+  eq("aucun groove pour six temps", BR.groovesCompatibles(6).length, 0);
+
+  poser("C | G", 3, "va-trois");
+  t("la valse tient une mesure à trois temps", BR.grooveCourant() !== null);
+  eq("la valse : deux mesures de grille", frappesTimeline(), 2 * frappesEcrites(BR.GROOVES[4]));
+
+  /* ⚑ La série « coupée ». Une assertion qui passe des deux côtés ne teste
+     rien : on compare des nombres, et le clic doit être IDENTIQUE. */
+  (function () {
+    poser("C | G", 4, "rk-base", { batterie:true });
+    const avecFrappes = frappesTimeline(), avecClic = BR.volumeClic("chgt");
+    poser("C | G", 4, "rk-base", { batterie:false });
+    const sansFrappes = frappesTimeline(), sansClic = BR.volumeClic("chgt");
+    t("batterie coupée : zéro frappe", sansFrappes === 0 && avecFrappes > 0);
+    t("batterie coupée : le clic retrouve son 0,20", sansClic === F.etat && false || sansClic === BR.VOLUME_CLIC.chgt);
+    t("batterie mise : le clic est rabaissé", avecClic < sansClic);
+    t("le clic rabaissé reste audible", avecClic > 0);
+  })();
+  ["chgt", "fort", "faible", "sub"].forEach(function (k) {
+    t("clic rabaissé sur « " + k + " »", BR.VOLUME_CLIC_BAS[k] < BR.VOLUME_CLIC[k] && BR.VOLUME_CLIC_BAS[k] > 0);
+  });
+  t("le clic garde son rang : le changement d'accord reste le plus fort",
+    BR.VOLUME_CLIC_BAS.chgt > BR.VOLUME_CLIC_BAS.fort &&
+    BR.VOLUME_CLIC_BAS.fort > BR.VOLUME_CLIC_BAS.faible);
+
+  /* ---- 20.4 Le gap batterie : la parade Friedland ----------------- */
+  (function () {
+    poser("C | G", 4, "rk-base", { impro:true, gap:2, batterieGap:true });
+    const etats = [];
+    for (let m = 0; m < 8; m++) {
+      I.imprMesure = m;
+      etats.push(BR.batterieMuette() ? "." : "J");
+    }
+    /* gap 2 : deux mesures de démo, deux de gap, en alternance */
+    eq("le gap batterie suit exactement le gap de la démo", etats.join(""), "JJ..JJ..");
+    I.imprMesure = 2;
+    eq("pendant le gap : zéro frappe", frappesTimeline(), 0);
+    I.imprMesure = 0;
+    t("hors du gap : la batterie rejoue", frappesTimeline() > 0);
+
+    /* le drapeau se coupe : la batterie ne se retire plus */
+    poser("C | G", 4, "rk-base", { impro:true, gap:2, batterieGap:false });
+    I.imprMesure = 2;
+    t("gap batterie décoché : la batterie joue pendant le gap", frappesTimeline() > 0);
+
+    /* sans tour de parole, pas de retrait : un silence ne serait pas une
+       consigne, ce serait une panne */
+    poser("C | G", 4, "rk-base", { impro:true, gap:0, batterieGap:true });
+    I.imprMesure = 2;
+    t("gap nul : la batterie ne se tait jamais", BR.batterieMuette() === false);
+    poser("C | G", 4, "rk-base", { impro:false, gap:2, batterieGap:true });
+    I.imprMesure = 2;
+    t("démo coupée : pas de gap batterie non plus", BR.batterieMuette() === false);
+    I.imprMesure = -1;
+  })();
+
+  /* ---- 20.5 X13 joué : le où sur l'accord, le combien au profil --- */
+  (function () {
+    poser("C | G", 4, "rk-base", { batterie:false });
+    F.etat.subdivision = 1;
+    eq("régime de croche binaire hors batterie", BR.regimeCroche(), "bin");
+    eq("^C avance de 59 ticks sur 120", BR.avancePush({push:1}), 59 / 120);
+    eq("^^C avance de 28 ticks sur 120", BR.avancePush({push:2}), 28 / 120);
+    eq("C n'avance pas", BR.avancePush({push:0}), 0);
+    eq("un accord absent n'avance pas", BR.avancePush(null), 0);
+    F.etat.subdivision = 3;
+    eq("régime swingué : 38 ticks", BR.avancePush({push:1}), 38 / 120);
+    eq("régime swingué : 20 ticks pour la double", BR.avancePush({push:2}), 20 / 120);
+    F.etat.subdivision = 1;
+    /* le groove décide du régime avant la subdivision */
+    poser("C | G", 4, "sh-shuffle", { batterie:true });
+    eq("un groove ternaire impose le régime swingué", BR.regimeCroche(), "tern");
+    eq("shuffle : ^C avance de 38 ticks", BR.avancePush({push:1}), 38 / 120);
+    t("l'avance est plafonnée sous le temps", BR.avancePush({push:1}) < 0.75);
+
+    /* ⭐ L'assertion qui compte : l'anticipation touche la NAPPE, jamais
+       la grille rythmique. */
+    poser("C | G", 4, "rk-base", { batterie:true });
+    const sansPush = [];
+    for (let i = 0; i < F.timeline.length; i++)
+      BR.planPercu(i).forEach(function (c) { sansPush.push(i + "@" + c.off.toFixed(4) + ":" + c.timbre); });
+    poser("^C | ^^G", 4, "rk-base", { batterie:true });
+    const avecPush = [];
+    for (let i = 0; i < F.timeline.length; i++)
+      BR.planPercu(i).forEach(function (c) { avecPush.push(i + "@" + c.off.toFixed(4) + ":" + c.timbre); });
+    eq("^C ne déplace aucune frappe de groove", avecPush.join("|"), sansPush.join("|"));
+    t("mais l'accord, lui, est bien anticipé",
+      F.timeline[0].accord.push === 1 && F.timeline[4].accord.push === 2);
+  })();
+
+  /* les trois marqueurs de restitution, vus par la section rythmique */
+  (function () {
+    poser("C | G", 4, "rk-base");
+    const plein = frappesTimeline();
+    poser("C. | G", 4, "rk-base");
+    const apresSilence = frappesTimeline();
+    poser("C.. | G", 4, "rk-base");
+    const apresFrappe = frappesTimeline();
+    poser("C... | G", 4, "rk-base");
+    const apresTenue = frappesTimeline();
+    t("C. : la section rythmique se tait sur l'accord", apresSilence < plein);
+    t("C... : la section rythmique s'efface derrière la tenue", apresTenue < plein);
+    eq("C. et C... taisent la même chose", apresSilence, apresTenue);
+    t("C.. : un coup sec, et rien de plus", apresFrappe > apresSilence && apresFrappe < plein);
+    /* le coup sec tombe sur le temps du marquage, et nulle part ailleurs */
+    poser("C.. | G", 4, "rk-base");
+    eq("C.. : le coup sec est sur le premier temps de l'accord",
+      BR.planPercu(0).every(function (c) { return c.off === 0; }) &&
+      BR.planPercu(1).length === 0 && BR.planPercu(2).length === 0 && BR.planPercu(3).length === 0, true);
+    t("l'accord suivant retrouve son groove entier", BR.planPercu(4).length > 0);
+  })();
+
+  /* ---- 20.6 L'ordonnanceur : les frappes tombent aux bons instants - */
+  (function () {
+    /* le faux AudioContext de la série 10, augmenté du tampon de bruit :
+       une percussion sur trois n'est QUE du bruit filtré, et ne créerait
+       aucun oscillateur à compter. */
+    win.eval("window.__versDestination = 0; window.__faireCtxPercu = window.__faireCtx;");
+
+    function jouerBatterie(txt, battues, groove, tempo, opts) {
+      opts = opts || {};
+      poser(txt, battues, groove, opts);
+      F.etat.tempo = tempo;
+      F.etat.clic = ("clic" in opts) ? opts.clic : false;
+      F.etat.pad = ("pad" in opts) ? opts.pad : false;
+      F.etat.bourdon = false;
+      win.eval("window.__evts = []; window.__rampes = []; window.__freq = []; window.__filtres = [];");
+      win.eval("ctx = window.__faireCtxPercu(); maitre = ctx.createGain(); bruit = null; initBruit();" +
+               " prochainTemps = 0; pointeur = 0; padAmorce = false; fileAttente = []; reinitImpro();");
+      const n = F.timeline.length;
+      for (let k = 0; k < n; k++) win.eval("ctx.currentTime = " + (k * (60 / tempo)) + "; ordonnanceur();");
+      return win.eval("window.__evts.slice()");
+    }
+
+    /* rock de base à 60 BPM : le temps dure une seconde, la case un quart */
+    let e = jouerBatterie("C | G", 4, "rk-base", 60);
+    const gr = BR.GROOVES[0];
+    /* kick : 1 oscillateur · snare : 1 oscillateur + 1 bruit · hat : 1 bruit */
+    const attendu = 2 * (2 * 1 + 2 * 2 + 8 * 1);
+    eq("rock de base, deux mesures : le compte des événements", e.length, attendu);
+    const instants = e.map(function (x) { return Math.round(x.t * 1000); });
+    t("aucune frappe hors de la grille des quarts de temps",
+      instants.every(function (ms) { return ms % 250 === 0; }));
+    eq("la première frappe est sur le temps 1", instants[0], 0);
+    t("la grosse caisse descend de 150 Hz",
+      e.some(function (x) { return x.forme === "sine" && x.f === 150; }));
+    t("la caisse claire mêle bruit et sinus",
+      e.some(function (x) { return x.forme === "bruit"; }) &&
+      e.some(function (x) { return x.forme === "triangle" && x.f === 180; }));
+    eq("⚑ rien ne passe par ctx.destination", win.eval("window.__versDestination"), 0);
+
+    /* ⚑ L'ORDRE imprPasser → percuPasser, éprouvé pour de vrai.
+       Inversé, le premier temps de chaque mesure lit un imprMesure d'une
+       mesure de retard : le gap commencerait un temps trop tard et
+       finirait un temps trop tôt. Sans cette série, le commentaire du
+       moteur prétendrait être testé sans l'être. */
+    (function () {
+      const e2 = jouerBatterie("C | G | Am | F", 4, "rk-base", 60,
+        { impro:true, gap:2, batterieGap:true, clic:false, pad:false });
+      /* le bruit filtré n'appartient qu'à la percussion : la voix de la
+         démo n'en produit aucun, elle n'a que des oscillateurs */
+      const parMesure = [0, 0, 0, 0];
+      e2.filter(function (x) { return x.forme === "bruit"; }).forEach(function (x) {
+        const m = Math.floor(x.t / 4);
+        if (m >= 0 && m < 4) parMesure[m]++;
+      });
+      eq("gap 2 : la batterie joue deux mesures puis se retire deux mesures",
+        parMesure.join(","), "10,10,0,0");
+      t("la démo, elle, continue de sonner pendant les deux premières mesures",
+        e2.some(function (x) { return x.forme === "sawtooth"; }));
+    })();
+
+    /* le shuffle place ses frappes aux tiers, jamais aux quarts */
+    e = jouerBatterie("C | G", 4, "sh-shuffle", 60);
+    const tiers = e.map(function (x) { return Math.round(x.t * 3000) / 3000; });
+    t("shuffle : toutes les frappes tombent sur un tiers de temps",
+      tiers.every(function (s) { return Math.abs(s * 3 - Math.round(s * 3)) < 1e-6; }));
+
+    /* la valse : trois temps, et le compte suit la métrique déclarée */
+    e = jouerBatterie("C | G", 3, "va-trois", 60);
+    t("valse : des frappes sur une mesure à trois temps", e.length > 0);
+    t("valse : rien au-delà de la troisième seconde de chaque mesure",
+      e.every(function (x) { return x.t < 6; }));
+
+    /* batterie coupée : le clic est INCHANGÉ EN NOMBRE */
+    const avec = jouerBatterie("C | G", 4, "rk-base", 60, { clic:true }).filter(function (x) { return x.forme === "square"; }).length;
+    const sans = jouerBatterie("C | G", 4, "rk-base", 60, { clic:true, batterie:false }).filter(function (x) { return x.forme === "square"; }).length;
+    eq("batterie coupée : autant de clics qu'avant", sans, avec);
+    eq("huit clics pour deux mesures à quatre temps", sans, 8);
+
+    /* ⭐ la nappe anticipée : l'accord sonne AVANT son temps */
+    e = jouerBatterie("C | G", 4, "rk-base", 60, { pad:true, batterie:false });
+    let nappes = e.filter(function (x) { return x.forme === "triangle"; }).map(function (x) { return Math.round(x.t * 10000) / 10000; });
+    const sansAvance = nappes.filter(function (x, i, a) { return a.indexOf(x) === i; }).sort(function (a, b) { return a - b; });
+    eq("sans anticipation : les deux accords sur leur temps", sansAvance.join(), "0,4");
+    e = jouerBatterie("C | ^G", 4, "rk-base", 60, { pad:true, batterie:false });
+    nappes = e.filter(function (x) { return x.forme === "triangle"; }).map(function (x) { return Math.round(x.t * 10000) / 10000; });
+    const avecAvance = nappes.filter(function (x, i, a) { return a.indexOf(x) === i; }).sort(function (a, b) { return a - b; });
+    eq("^G sonne 59/120 de temps avant le sien",
+      avecAvance.join(), [0, Math.round((4 - 59 / 120) * 10000) / 10000].join());
+    t("⚑ l'anticipation est programmée depuis le temps PRÉCÉDENT, donc dans la fenêtre",
+      4 - 59 / 120 > 3);
+    /* C. : la nappe se tait */
+    e = jouerBatterie("C. | G", 4, "rk-base", 60, { pad:true, batterie:false });
+    const nb = e.filter(function (x) { return x.forme === "triangle"; }).length;
+    e = jouerBatterie("C | G", 4, "rk-base", 60, { pad:true, batterie:false });
+    t("C. : la nappe se tait aussi", nb < e.filter(function (x) { return x.forme === "triangle"; }).length);
+  })();
+
+  /* ---- 20.7 L'interface ------------------------------------------- */
+  t("le quatrième interrupteur existe", !!doc.getElementById("basBatterie"));
+  t("le champ de la batterie existe", !!doc.getElementById("champBatterie"));
+  t("le curseur de densité existe", !!doc.getElementById("grooveDensite"));
+  t("la bascule du gap batterie existe", !!doc.getElementById("basBatterieGap"));
+  (function () {
+    F.etat.batterie = true; F.etat.battues = 4; F.etat.groove = "rk-base";
+    BR.majBatterie();
+    eq("le select ne propose que les grooves à quatre temps",
+      doc.getElementById("groove").querySelectorAll("option").length, 4);
+    t("le champ est visible quand la batterie est mise", !doc.getElementById("champBatterie").hidden);
+    F.etat.battues = 3; BR.majBatterie();
+    eq("à trois temps, un seul groove", doc.getElementById("groove").querySelectorAll("option").length, 1);
+    eq("et le groove courant bascule dessus", F.etat.groove, "va-trois");
+    F.etat.battues = 6; BR.majBatterie();
+    eq("à six temps, aucun groove", doc.getElementById("groove").querySelectorAll("option").length, 0);
+    t("et l'app le DIT au lieu de le laisser deviner",
+      /aucun groove/i.test(doc.getElementById("aideGroove").textContent));
+    t("le select est neutralisé", doc.getElementById("groove").disabled === true);
+    F.etat.batterie = false; BR.majBatterie();
+    t("le champ se referme avec l'interrupteur", doc.getElementById("champBatterie").hidden === true);
+  })();
+
+  /* ---- 20.8 Persistance ------------------------------------------- */
+  (function () {
+    F.etat.batterie = true; F.etat.groove = "sh-shuffle";
+    F.etat.grooveDensite = 2; F.etat.batterieGap = false;
+    F.sauver();
+    const v = JSON.parse(win.localStorage.getItem("improvguit.v2"));
+    t("les quatre réglages de la batterie sont persistés",
+      v.batterie === true && v.groove === "sh-shuffle" &&
+      v.grooveDensite === 2 && v.batterieGap === false);
+  })();
+
+  /* --- remise en état ---------------------------------------------- */
+  F.etat.batterie = false; F.etat.groove = "rk-base";
+  F.etat.grooveDensite = 3; F.etat.batterieGap = true;
+  F.etat.impro = false; F.etat.imprGap = 0;
+  F.etat.battues = memo.battues; F.etat.subdivision = memo.sub;
+  F.etat.tempo = memo.tempo; F.etat.clic = memo.clic;
+  F.etat.pad = memo.pad; F.etat.bourdon = memo.bourdon;
+  I.imprMesure = -1;
+  F.appliquerSaisie(memo.saisie);
+  BR.majBatterie();
+})();
 
 console.log("\n" + (ok + ko) + " assertions — " + ok + " au vert, " + ko + " au rouge");
 console.log(REP
