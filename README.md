@@ -40,6 +40,14 @@ L'application a **deux voies**, commutées en haut de page.
   Couper « suivre la boucle » redonne la navigation degré par degré, hors tempo :
   c'est le mode d'étude.
 
+**Boîte à rythmes** — quatrième interrupteur des réglages. Le moteur cesse d'improviser
+au-dessus d'un métronome : une section rythmique entre, et le clic **ne disparaît pas**, il se
+subordonne — il reste le seul à marquer le changement d'accord, ce qu'aucun groove ne dit.
+Le sélecteur ne propose **que** les grooves compatibles avec la métrique courante ; quand aucun
+ne l'est, la batterie se tait, le clic reste, et l'application le dit à l'écran. Un curseur de
+densité, **séparé du grade**, dégarnit le groove sans toucher à l'exercice. Et si un gap de démo
+est armé, la batterie se retire avec elle : c'est le retrait programmé du support, pas une panne.
+
 **Mode pupitre** — le bouton d'agrandissement bascule l'affichage en pupitre : viewport
 réparti en `100dvh`, manche dimensionné sur la hauteur restante, plus de zones de
 défilement imbriquées. La sortie est **uniquement manuelle** — mettre en pause ne
@@ -103,7 +111,7 @@ Fichier unique, sections numérotées dans le `<script>` :
 
 1. **Théorie** — `NOMS`/`FR`/`DEGRE` (12 classes de hauteur), table `QUALITES` (alias → intervalles), `ALIAS` trié par longueur décroissante pour apparier d'abord le suffixe le plus long. `lireAccord()` renvoie `{sym, pc, iv, notes}` ou `null`, avec un repli qui retire les parenthèses. `lireBoucle(texte, battues)` renvoie `{mesures}` ou `{erreur}` : jamais d'exception, toute saisie illisible remonte un message. Le second argument sert au plafond d'emplacements.
 2. **Modèle de données** — une boucle est un **tableau de mesures**, chaque mesure un tableau d'emplacements. Les accords tenus — sur plusieurs mesures (`*4`, `%`) comme à l'intérieur d'une mesure (`_`) — partagent **la même référence d'objet** : c'est cette identité qui distingue un accord tenu d'un accord rejoué, pour l'affichage comme pour la nappe audio. Trois fonctions en dépendent (`construireTimeline`, `dureeAccord`, `poidsNotes`) et aucune n'a besoin de connaître la notation.
-3. **Persistance** — `localStorage`, clé `improvguit.v2`, schéma `{grade, saisie, battues, tempo, zone, duree, gamme, toniqueModele, subdivision, pad, bourdon, clic, miroir, coach, pupitre, morceau, modeleActif, tonalite, impro, imprHarmonie, imprRythme, imprMelodie, imprGap, imprSuite, imprManche, atelier, palier, atelierBoucle, atelierRenv, atelierJeu, saisieAvant}`. Lecture et écriture sous `try/catch`. Une clé absente d'une sauvegarde ancienne garde sa valeur par défaut. `etat.jeu` (régime pupitre courant) est délibérément **hors schéma** : on ne rouvre pas l'application en pupitre.
+3. **Persistance** — `localStorage`, clé `improvguit.v2`, schéma `{grade, saisie, battues, tempo, zone, duree, gamme, toniqueModele, subdivision, pad, bourdon, clic, miroir, coach, pupitre, morceau, modeleActif, tonalite, impro, imprHarmonie, imprRythme, imprMelodie, imprGap, imprSuite, imprManche, batterie, groove, grooveDensite, batterieGap, atelier, palier, atelierBoucle, atelierRenv, atelierJeu, saisieAvant}`. Lecture et écriture sous `try/catch`. Une clé absente d'une sauvegarde ancienne garde sa valeur par défaut. `etat.jeu` (régime pupitre courant) est délibérément **hors schéma** : on ne rouvre pas l'application en pupitre.
 4. **Ligne de temps** — `construireTimeline()` produit un temps par battue avec `{mesure, temps, fort, accord, debutAccord, zoneAtterrissage}`. Dans une mesure à plusieurs emplacements, l'accord d'un temps est `floor(temps × nEmplacements / battues)` ; quand il y a autant d'emplacements que de temps, la correspondance est l'identité — c'est ce qui rend `_` exact. `debutAccord` compare les références. `zoneAtterrissage` marque le dernier temps avant un changement : c'est la cible visuelle des grades ≥ 3.
 5. **Audio** — `AudioContext` partagé, ordonnanceur à anticipation (`setInterval` 25 ms, fenêtre 120 ms). Clic carré à quatre hauteurs (1760 Hz changement d'accord, 1320 Hz temps fort, 880 Hz autres, 660 Hz subdivision) ; les subdivisions sont générées dans l'ordonnanceur, la ligne de temps les ignore. Nappe en ondes triangulaires dont la durée vient de `dureeAccord()`, plafonnée à 12 s. **Bourdon** facultatif : fondamentale et octave sur la tonique modale, une octave sous la nappe, programmé une seule fois par tour de boucle et non par accord ; son extinction déborde sur l'attaque du tour suivant, qui la recouvre. `arreter()` ferme le gain maître sur 20 ms : sans cela, clics et nappes déjà programmés continuent de sonner après l'arrêt, jusqu'à deux tiers de temps avec les subdivisions. La synchro visuelle dépile une file `{i, t}` en `requestAnimationFrame` contre `ctx.currentTime` — jamais `setTimeout`.
 6. **Calcul d'affichage** — `marques()` retourne `classe de hauteur → {couleur, étiquette, halo, petit}` selon le mode du grade. Point unique où la pédagogie touche le rendu ; ajouter un grade = ajouter un mode ici et une branche dans `rendreConsigne()`. La tonique dont dépendent la gamme dessinée, le texte de la consigne et le bourdon vient d'une source unique, `toniqueModale()` : la fondamentale du premier accord de la boucle.
@@ -131,6 +139,18 @@ Fichier unique, sections numérotées dans le `<script>` :
     - **Le manche pendant la démo** : la figure du coach reste affichée, et un halo (`#imprHalo`) la suit note à note. Les deux ne disent pas la même chose — la figure est le geste, le halo est l'endroit où le doigt se pose *maintenant*. Le halo se dépile contre `ctx.currentTime`, comme la synchro des temps : il suit la note **entendue**, pas la note programmée, qui a jusqu'à 120 ms d'avance.
     - ⭐ **L'aléa est injectable** — `poserAlea()`, générateur `graine()` en xorshift32. Ce n'est pas une commodité : un générateur qui appelle `Math.random()` en dur n'est **pas vérifiable**, et chaque assertion du banc passerait des deux côtés. `tirerConsigne()` est passé par la même porte.
     - **Le vocabulaire rythmique embarqué est minimal et de bien commun** — noire, silence, blanche, croches, croche pointée-double, contretemps, doubles, triolet, chabada, silence ternaire. Les relevés sous droits ne sont pas ici : ils vivent dans `corpus/grooves.json`, côté portail, derrière Access. **Le moteur connaît la forme d'une figure ; le corpus privé n'ajoute pas une capacité, il ajoute du répertoire.**
+16. **Boîte à rythmes** — section `5 bis` du source. Le moteur improvisait au-dessus d'un métronome ; il improvise maintenant au-dessus d'une section rythmique.
+    - **Le schéma de groove est celui du métronome, adopté tel quel** — `{famille, id, label, count, battues, metre, min, max, jam, voix:[{role, timbre, grid}]}` — et non un second schéma : un seuil dupliqué diverge en silence. **`battues` est le seul champ ajouté, et il vaut 4 par défaut** : les 33 grooves du métronome restent valides sans une seule modification.
+    - ⚑ **`count:12` ne veut pas dire « ternaire ».** C'est `casesParTemps = count / battues` qui décide : `12/4 = 3` cases par temps est ternaire (le shuffle), mais `12/3 = 4` cases par temps est **binaire** (la valse), et `12/2 = 6` est ternaire (le 6/8 senti à deux). Le champ `metre` reste déclaré pour la lisibilité humaine, mais il est un **second dépositaire de la même vérité** : une assertion exige qu'il concorde avec le calcul, et une contradiction rougit au lieu de se propager. Corollaire à connaître : `count:16` ne survit qu'en 4 et 2 temps — la valse et le 6/8 s'écrivent en `count:12`.
+    - **Un groove qui ne colle pas à la métrique ne joue pas.** Il n'est ni étiré, ni cyclé, ni remplacé. Lire les cases au temps en cyclant ne refusait rien et ne coûtait aucun groove — mais une mesure à 3 y perdait son backbeat sur 4, et une mesure à 6 rejouait ses deux premiers temps. Faux, et **silencieusement** faux : rien dans le son ne dirait que le moteur a improvisé une règle. Quand aucun groove ne tient la mesure, **la batterie se tait et le clic reste** — c'est la doctrine « une couche coupée ne se tait pas, elle produit la version pauvre », appliquée telle quelle : le clic seul *est* la version pauvre d'une section rythmique.
+    - **Alphabet des cases, cinq états** : `X` accent · `x` attaque · `-` tenue · `.` vide · `m` étouffé. `grid.length === count`, contrôlé par assertion pour chaque voix. `-` est légal et ne produit **aucune** attaque : une percussion n'occupe pas une case, elle la traverse.
+    - **Timbres synthétisés en WebAudio maison** — ni échantillon, ni SoundFont, ni base64 de `.wav` : la règle qui a écarté Tone.js pour la mélodie vaut aussi pour la peau des tambours, et c'est elle qui garde le fichier unique et hors ligne. Sept voix : grosse caisse (sinus qui descend de 150 à 50 Hz — **la descente de hauteur *est* le coup de batte**, sans elle on entend une note de basse), caisse claire (bruit passe-bande 1 800 Hz **plus** un sinus 180 Hz : le bruit seul fait « pschh », le sinus seul fait « tom »), charleston fermé et ouvert, clave, cajón grave et aigu. ⚠️ **Un seul tampon de bruit**, fabriqué une fois et relu par tous les `AudioBufferSourceNode` : le refaire à chaque frappe, c'est allouer quelques milliers d'échantillons seize fois par mesure pour un résultat identique. Tout passe par `maitre` et jamais par `ctx.destination` — c'est ce qui fait qu'`arreter()` éteint aussi la batterie, sans une ligne de plus, et le banc compte les connexions à `destination` pour s'en assurer.
+    - **L'ordonnanceur n'a pas changé d'une ligne.** Le patron des cases était déjà écrit pour les subdivisions du clic : une case de groove se programme `prochainTemps + parTemps * k / casesParTemps`, exactement pareil. `planPercu(i)` rend le plan d'un temps **sans audio et sans horloge** — c'est cette fonction que le banc éprouve ; `percuPasser()` ne fait que la programmer.
+    - ⚑ **`percuPasser` passe APRÈS `imprPasser`, et l'ordre n'est pas décoratif** : c'est `imprPasser` qui fait avancer `imprMesure`, dont le gap batterie lit l'état. Inversé, le retrait de la batterie commence un temps trop tard et finit un temps trop tôt. Ce n'est pas une précaution théorique — le banc l'a fait rougir dès la première écriture, où l'ordre était mauvais.
+    - **Le curseur de densité est séparé du grade.** `DENSITE[grade]` bride la démo mélodique, qui est l'exercice ; le groove, lui, est le **contexte**. Trois crans, et l'inclusion est garantie par assertion : squelette ⊆ allégé ⊆ complet. Le squelette ne garde que les accents des voix d'appui (grosse caisse, caisse claire, cajón grave) ; l'allégé retire la garniture hors des temps.
+    - **Le gap s'applique aussi à la batterie**, et c'est la parade documentée à l'objection Friedland — *la boîte à rythmes te tire par la manche*, elle retire à l'élève la responsabilité du temps fort. Le même cycle démo + gap + démo, appliqué à la section rythmique, fait travailler la pulsation intérieure au lieu de la remplacer. **Aucune ligne nouvelle** : un drapeau de plus lu sur `etatImpro()`. ⚠️ Le retrait n'existe que si la couche impro tient un gap : sans tour de parole, un silence de batterie n'est pas une consigne, c'est une panne.
+    - **X13 joué.** Le *où* est un marqueur d'accord, le *combien* un champ de profil : `push8` / `push16` en **ticks entiers à 120 par temps** (59/28 en croche égale, 38/20 en croche swinguée — mesurés, pas inventés), et le moteur divise **une fois**. Le régime est décidé par le `metre` du groove qui joue, à défaut par la subdivision affichée : un groove qui ne sonne pas ne décide de rien. ⚑ **Une anticipation se programme au temps PRÉCÉDENT** — jusqu'à un demi-temps d'avance, elle sort de la fenêtre de 120 ms si on l'attend sur son propre temps. Le tout premier accord d'une boucle fait exception : rien ne le précède, il sonne sur son temps une fois, puis le tour suivant l'anticipe. `C.` tait toute la section rythmique, `C..` la réduit à un coup sec sur le temps du marquage, `C...` laisse la nappe tenir et efface la percussion derrière. **Et l'anticipation ne déplace aucune frappe de groove** : la grille rythmique ne connaît pas les accords — c'est asserté.
+    - **Le corpus sous droits entre par une seule porte**, `poserGrooves()`, avec les mêmes gardes et le même alphabet ; un groove refusé est **dit**, jamais avalé. Les six patrons embarqués — rock de base, backbeat aux croches, shuffle, bossa élémentaire, valse, 6/8 — sont de bien commun. **Le moteur connaît la forme d'un groove ; le corpus privé n'ajoute pas une capacité, il ajoute du répertoire.**
 
 Conventions de couleur, appliquées partout : **laiton** = fondamentale ou note d'ancrage, **indigo** = autres notes d'accord, **vert** = septième, halo des notes mobiles et approches chromatiques, **gris** = notes de passage. Manche en bois sombre et frettes laiton, chrome en ardoise froide : l'instrument se distingue de l'interface.
 
@@ -145,9 +165,9 @@ npm install     # jsdom, seule dépendance, de développement uniquement
 npm test
 ```
 
-`test.js` charge `index.html` dans un DOM et le pilote comme un utilisateur. Couverture : parseur et plafond d'emplacements aux quatre métriques, token de prolongation et identité par référence, tenue par-dessus la barre, ligne de temps et durées d'accord, notes communes et mobiles, ancrage sur la tonique, substitut tritonique, ordonnanceur audio sur `AudioContext` factice (comptage et placement des clics, tenue et hauteur du bourdon, coupure du maître à l'arrêt), rendu des onze grades, modèles, réglages, saisie invalide, persistance, bulles pédagogiques (analyse, couverture des 132 combinaisons grade × note, renvois théorie ↔ exercice non orphelins, clics réels dans le DOM), absence de dépendance externe et de contenu pédagogique dans `index.html`, et **couche impro** : déterminisme à graine égale, réservoir tenu sur un accord hostile (`Cmaj7 | F#7`), piliers aux rendez-vous, chaque couche coupée qui **change** la sortie, mesure exactement remplie aux quatre métriques, aucune valeur binaire en subdivision ternaire, jamais deux attaques au même instant, bridage au grade (G0 sur l'ancrage seul, G2 dans la cellule), registre et cohérence hauteur/classe sur les onze grades, cycle démo/gap et indices de phrase en reprise comme en échange, gap plus long que la boucle, neuf figures fabriquées dont illégales (`C5`, `Dsus4`, `Bdim7`, boucle d'un seul accord, 32 mesures, boucle vide), gap qui ne coupe que la démo et laisse le clic intact, silence en atelier, réglages persistés, halo du manche.
+`test.js` charge `index.html` dans un DOM et le pilote comme un utilisateur. Couverture : parseur et plafond d'emplacements aux quatre métriques, token de prolongation et identité par référence, tenue par-dessus la barre, ligne de temps et durées d'accord, notes communes et mobiles, ancrage sur la tonique, substitut tritonique, ordonnanceur audio sur `AudioContext` factice (comptage et placement des clics, tenue et hauteur du bourdon, coupure du maître à l'arrêt), rendu des onze grades, modèles, réglages, saisie invalide, persistance, bulles pédagogiques (analyse, couverture des 132 combinaisons grade × note, renvois théorie ↔ exercice non orphelins, clics réels dans le DOM), absence de dépendance externe et de contenu pédagogique dans `index.html`, **boîte à rythmes** : les six grooves publics relus un par un, la table complète des métriques légales (`16/4`, `12/4`, `12/3`, `12/2`, `12/6`, `16/2`) et le refus des divisions non entières, la concordance de `metre` avec `count / battues`, dix grooves fabriqués **illégaux** (grille trop courte, trop longue, caractère hors alphabet, timbre inconnu, aucune voix, `count` absent, tempo min > max, `metre` menteur), les cases qui tombent pile et jamais deux au même instant pour une même voix, le shuffle aux tiers de temps **contre la valse aux demis à `count` égal**, la monotonie du curseur de densité, la batterie coupée qui laisse le clic **inchangé en nombre**, le groove incompatible qui se tait au lieu de s'étirer, le clic rabaissé sur ses quatre timbres, le gap batterie mesuré mesure par mesure à travers l'ordonnanceur, l'anticipation qui avance la nappe **sans déplacer une seule frappe**, les trois marqueurs de restitution vus par la section rythmique, et le compte des connexions à `ctx.destination` — qui doit rester à zéro ; et **couche impro** : déterminisme à graine égale, réservoir tenu sur un accord hostile (`Cmaj7 | F#7`), piliers aux rendez-vous, chaque couche coupée qui **change** la sortie, mesure exactement remplie aux quatre métriques, aucune valeur binaire en subdivision ternaire, jamais deux attaques au même instant, bridage au grade (G0 sur l'ancrage seul, G2 dans la cellule), registre et cohérence hauteur/classe sur les onze grades, cycle démo/gap et indices de phrase en reprise comme en échange, gap plus long que la boucle, neuf figures fabriquées dont illégales (`C5`, `Dsus4`, `Bdim7`, boucle d'un seul accord, 32 mesures, boucle vide), gap qui ne coupe que la démo et laisse le clic intact, silence en atelier, réglages persistés, halo du manche.
 
-**Le répertoire étant hors dépôt, les séries qui en dépendent sont ignorées s'il est absent** : un clone nu valide le moteur et l'interface (**814 assertions**, dont 66 pour la couche impro) ; avec `repertoire.json` posé à côté, la vérification fiche par fiche s'ajoute — grille lisible, longueur annoncée, gamme connue, tonalité effectivement lue, absence du titre et de l'artiste dans `index.html` — soit 1 108 assertions de plus sur les trente-huit fiches actuelles. Le test annonce lequel des deux régimes il a suivi.
+**Le répertoire étant hors dépôt, les séries qui en dépendent sont ignorées s'il est absent** : un clone nu valide le moteur et l'interface (**1 040 assertions**, dont 66 pour la couche impro et 198 pour la boîte à rythmes) ; avec `repertoire.json` posé à côté, la vérification fiche par fiche s'ajoute — grille lisible, longueur annoncée, gamme connue, tonalité effectivement lue, absence du titre et de l'artiste dans `index.html` — soit 1 108 assertions de plus sur les trente-huit fiches actuelles. Le test annonce lequel des deux régimes il a suivi.
 
 Le double d'`AudioContext` tient **deux journaux séparés**, `__rampes` pour le gain et `__freq` pour la fréquence. La voix de la démo balaie son filtre ; si les deux paramètres écrivaient au même endroit, une rampe de 9 000 Hz serait comptée comme un niveau et la série du bourdon — qui lit le maximum des rampes de gain — rougirait pour une raison fausse.
 
@@ -161,6 +181,81 @@ Le double d'`AudioContext` tient **deux journaux séparés**, `__rampes` pour le
 > les décisions qui les ont produits, elles, n'ont pas été consignées et ne sont pas
 > reconstituées ici. Le journal est en ajout seul : mieux vaut un trou visible qu'une
 > continuité inventée.
+
+### 2026-08-22 (nuit) — la boîte à rythmes : le projet porte enfin son nom
+
+**Ce que ça change.** Le projet s'appelle « boîte à rythmes impro ». La moitié *impro* était en
+ligne depuis le matin ; la moitié *boîte à rythmes* n'avait jamais été écrite — balayage à
+l'appui, `batterie`, `percussion`, `kick`, `snare`, `charleston`, `caisse`, `clave`, `tumbao`,
+`samba`, `bossa`, `shuffle` faisaient **zéro occurrence** dans `index.html`. Elles y sont. Sept
+timbres synthétisés, la lecture des grilles de groove, six patrons de bien commun, un quatrième
+interrupteur, un curseur de densité, le gap appliqué à la section rythmique, et les marqueurs de
+restitution qui ne sont plus seulement *lus* mais *joués*.
+
+**La décision qui commande toutes les autres : le groove déclare sa métrique.** L'interface propose
+4, 3, 2 et 6 temps par mesure — le cas d'une mesure qui n'a pas quatre temps n'est pas un cas
+limite, c'est un cas courant. `battues` entre donc au schéma, défaut 4, et `casesParTemps` se
+**calcule** au lieu d'être supposé. Conséquence immédiate et contre-intuitive : ⚑ **`count:12` ne
+veut plus dire « ternaire »**. La convention du métronome n'était vraie que parce que `battues`
+valait toujours 4. `12 / 3 = 4` cases par temps, c'est du **binaire** — c'est la valse. Le champ
+`metre` devient alors un second dépositaire de la même vérité, exactement le défaut que `RHO_RANGS`
+documente ; il reste déclaré pour la lisibilité, mais une assertion exige qu'il concorde avec le
+calcul. Une contradiction rougit au lieu de se propager.
+
+**Pourquoi la valse et le 6/8 sont embarqués alors que quatre patrons en 4/4 auraient suffi.**
+Parce qu'avec quatre patrons en 4/4, la métrique déclarée n'aurait jamais été éprouvée **à
+l'usage** — seulement au banc. Le shuffle et la valse ont le **même `count`** et des cases
+totalement différentes : le premier aux tiers de temps, la seconde aux demis. C'est ce couple, et
+lui seul, qui rend la règle démontrable à l'oreille. Coût : quelques centaines d'octets.
+
+**Ce qui a été écarté, et pourquoi.** Lire les cases au temps en cyclant ne refuse aucun groove et
+n'en coûte aucun — mais une mesure à 3 y perd son backbeat sur 4, et une mesure à 6 rejoue ses
+temps 1-2 en 5-6. ⚠️ Faux, et **silencieusement** faux : rien dans le son ne dirait que le moteur a
+improvisé une règle. Quand aucun groove ne tient la mesure, la batterie se tait, le clic reste, et
+l'écran le dit. Écarté aussi : trier les 33 grooves du métronome pour verser au dépôt public ceux
+qui sont de bien commun — c'est un travail de droits groove par groove, et le risque est d'écrire
+du **répertoire** dans un dépôt public.
+
+**Batterie et clic ne se disputent pas le rôle de repère.** Le clic est à 0,20, le son le plus fort
+de l'app, parce qu'il *est* le repère ; un groove qui entre à côté ferait deux pulsations
+concurrentes. Il quitte donc son 0,20 pour un niveau discret dès que la batterie est armée — et
+il garde son rang interne, le changement d'accord restant le plus fort, parce que c'est la seule
+chose qu'aucun groove ne dit. ⚑ C'est l'**armement** qui rabaisse le clic, pas le fait de jouer :
+un niveau de clic qui sauterait à chaque gap s'entendrait comme une panne.
+
+**Le gap batterie répond à une contradiction du corpus, sans code neuf.** Stinnett prescrit la
+boîte à rythmes ; Friedland l'accuse de *« te tirer par la manche »* et de retirer à l'élève la
+responsabilité du temps fort. Les deux ont raison, et la parade était déjà écrite : le cycle
+démo + gap + démo, appliqué à la section rythmique. Un drapeau de plus lu sur `etatImpro()`.
+
+**Ce que la contre-épreuve a trouvé, et que je n'aurais pas vu autrement.** Quatorze régressions
+délibérées, toutes rouges. Mais surtout : la première écriture plaçait `percuPasser` **avant**
+`imprPasser` dans l'ordonnanceur — c'est-à-dire avant que `imprMesure` n'avance. Le banc a rendu
+`10,10,2,0` là où il attendait `10,10,0,0` : deux frappes de trop au premier temps de chaque mesure
+de gap. Un décalage d'un temps, sur une seule mesure sur quatre, à peu près inaudible et
+parfaitement faux. Il n'a pas été trouvé en relisant le code, mais en comptant les frappes mesure
+par mesure à travers l'ordonnanceur.
+
+⚠️ **Une assertion qui crashe ne rougit pas, elle cache les autres.** Deux des quatorze mutations
+faisaient tomber le banc sur une exception au lieu de le faire rougir — le faux `AudioContext` de
+la série 10 ne savait pas fabriquer de tampon de bruit, et une assertion lisait un index sans le
+garder. Corrigé aux deux endroits : le double d'`AudioContext` sait désormais compter une frappe
+qui sonnerait par erreur, au lieu de mourir dessus.
+
+**Le poids, mesuré.** 163 551 → **185 499 o** bruts, **59 065 o** gzippés — Cloudflare sert
+compressé. Le fichier reste **unique**, et ce n'est pas une coquetterie : une page ouverte en
+`file://` qui importe un module ES est refusée par la politique CORS du navigateur. Scinder le
+moteur imposerait une étape de construction et retirerait la seule propriété que ni Cloudflare ni
+le portail ne fournissent — l'ouverture sans serveur.
+
+**Ce qui n'est pas fait.** Les variantes pondérées et la table `interdits` de la note `01` — la
+batterie rejoue donc encore la même mesure indéfiniment, ce qu'un vrai batteur ne fait jamais. Le
+chargeur unique (`repertoire.json`, `grilles.json`, `grooves.json` en un seul `fetch`) reste
+ouvert ; `poserGrooves()` l'attend, porte et gardes comprises. Et le sous-point du 6/8 : il est
+écrit `battues:2` (senti à deux), `battues:6` (compté à six) resterait légal.
+
+**Le banc.** 842 → **1 040 assertions**, toutes vertes. Quatorze régressions délibérées vérifiées
+rouges.
 
 ### 2026-08-22 (soir) — X13 : l'anticipation s'écrit sur l'accord, pas dans la grille
 
