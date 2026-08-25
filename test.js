@@ -2318,7 +2318,9 @@ const BR = win.eval("({GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEA
   " battuesGroove, casesParTemps, metreCalcule, verifierGroove, poserGrooves," +
   " grooveCourant, groovesCompatibles, batterieArmee, batterieMuette, batterieJoue," +
   " casesDuTemps, planPercu, majBatterie, PROFIL_PUSH, regimeCroche, avancePush," +
-  " volumeClic, VOLUME_CLIC, VOLUME_CLIC_BAS, percuPasser, initBruit})");
+  " volumeClic, VOLUME_CLIC, VOLUME_CLIC_BAS, percuPasser, initBruit," +
+  " variantesDe, voixVariante, phraseDe, sectionCourante, variantesLegales," +
+  " tirerVariante, avancerVariante, reinitPercu, varianteCourante})");
 
 (function () {
   const memo = {
@@ -2699,7 +2701,13 @@ const BR = win.eval("({GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEA
     let e = jouerBatterie("C | G", 4, "rk-base", 60);
     const gr = BR.GROOVES[0];
     /* kick : 1 oscillateur · snare : 1 oscillateur + 1 bruit · hat : 1 bruit */
-    const attendu = 2 * (2 * 1 + 2 * 2 + 8 * 1);
+    /* ⭐ Deux mesures, et elles ne sonnent PLUS pareil depuis que rk-base
+       porte des variantes : la première est la mesure de base (14
+       événements), la seconde est l'une des deux relances — qui ajoutent
+       chacune exactement une frappe de grosse caisse, donc 15. Le compte
+       reste EXACT malgré le tirage, et c'est voulu : une assertion « à
+       peu près » sur un tirage ne vaut rien. */
+    const attendu = (2 * 1 + 2 * 2 + 8 * 1) + (3 * 1 + 2 * 2 + 8 * 1);
     eq("rock de base, deux mesures : le compte des événements", e.length, attendu);
     const instants = e.map(function (x) { return Math.round(x.t * 1000); });
     t("aucune frappe hors de la grille des quarts de temps",
@@ -2812,6 +2820,448 @@ const BR = win.eval("({GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEA
   F.etat.tempo = memo.tempo; F.etat.clic = memo.clic;
   F.etat.pad = memo.pad; F.etat.bourdon = memo.bourdon;
   I.imprMesure = -1;
+  F.appliquerSaisie(memo.saisie);
+  BR.majBatterie();
+})();
+
+
+/* ==================================================================
+   21. VARIANTES PONDÉRÉES ET TABLE D'INTERDITS
+   ------------------------------------------------------------------
+   Le défaut que le balayage RealDrums avait nommé (note 06) et que la
+   note 01 a spécifié : notre batterie rejouait la même mesure
+   indéfiniment. Le remède n'est pas du hasard, c'est une CONTRAINTE.
+
+   ⚑ Un tirage ne s'éprouve pas en le lisant. Trois façons de le faire
+   rougir, et il faut les trois :
+     · en balayant l'aléa case par case — les poids sont vérifiables ;
+     · en tirant des milliers de fois — les interdits sont des
+       invariants, pas des tendances ;
+     · à travers l'ordonnanceur — parce que c'est là que la variante
+       doit vraiment changer ce qui sonne.
+   ------------------------------------------------------------------ */
+(function () {
+  const memo = {
+    saisie: F.etat.saisie, battues: F.etat.battues, sub: F.etat.subdivision,
+    tempo: F.etat.tempo, clic: F.etat.clic, pad: F.etat.pad, bourdon: F.etat.bourdon
+  };
+  const K = {role:"gc", timbre:"kick",  grid:"X..............."};
+  const S = {role:"cc", timbre:"snare", grid:"....X.......X..."};
+  const K2 = {role:"gc", timbre:"kick", grid:"X.......X......."};
+  function base(extra) {
+    const g = {famille:"essai", id:"es-var", label:"essai",
+               count:16, battues:4, min:60, max:180, jam:100, voix:[K]};
+    Object.keys(extra || {}).forEach(function (c) { g[c] = extra[c]; });
+    return g;
+  }
+
+  /* ---- 21.1 Le schéma : facultatif, mais gardé ---------------------- */
+
+  /* ⭐ La non-régression d'abord, et elle est la condition de tout le
+     reste : un groove sans variantes doit se comporter EXACTEMENT comme
+     avant. Si celle-ci rougit, l'ajout n'était pas acceptable. */
+  (function () {
+    const v = BR.variantesDe(base());
+    eq("un groove sans variantes n'en a qu'une", v.length, 1);
+    eq("et c'est la variante 0", v[0].n, 0);
+    eq("la variante 0 porte le poids par défaut de la note 01", v[0].poids, 8);
+    /* ⚑ le MÊME tableau, pas une copie : une copie ferait diverger la
+       variante 0 du groove au premier réglage, et ça ne se verrait pas. */
+    const g0 = base();
+    t("la variante 0 EST le tableau voix du groove", BR.variantesDe(g0)[0].voix === g0.voix);
+    t("voixVariante(0) rend ce même tableau", BR.voixVariante(g0, 0) === g0.voix);
+    t("un n inconnu retombe sur les voix du groove", BR.voixVariante(g0, 42) === g0.voix);
+    eq("phrase vaut 4 par défaut", BR.phraseDe(base()), 4);
+    eq("un groove sans variantes tire toujours 0",
+      [0, 0.25, 0.5, 0.75, 0.999].map(function (x) {
+        return BR.tirerVariante(base(), 0, "A", -1, x);
+      }).join(), "0,0,0,0,0");
+  })();
+
+  /* ⭐ Deux patrons publics portent des variantes, quatre n'en portent
+     pas — et les quatre doivent se comporter EXACTEMENT comme avant.
+     C'est la non-régression, et elle se vérifie sur les grooves nus. */
+  (function () {
+    const dotes = BR.GROOVES.filter(function (g) { return g.variantes !== undefined; });
+    const nus   = BR.GROOVES.filter(function (g) { return g.variantes === undefined; });
+    eq("deux patrons publics portent des variantes", dotes.length, 2);
+    eq("et ce sont les deux rocks", dotes.map(function (g) { return g.id; }).sort().join(), "rk-base,rk-croches");
+    eq("les quatre autres restent nus", nus.length, 4);
+    nus.forEach(function (g) {
+      t("non-régression : " + g.id + " ne déclare ni variantes ni interdits",
+        g.variantes === undefined && g.interdits === undefined);
+      eq("non-régression : " + g.id + " tire toujours sa variante 0",
+        BR.tirerVariante(g, 0, "A", -1, 0.999), 0);
+      eq("non-régression : " + g.id + " n'a qu'une variante", BR.variantesDe(g).length, 1);
+    });
+    dotes.forEach(function (g) {
+      t("le groove doté reste légal : " + g.id, BR.verifierGroove(g).length === 0);
+      const v = BR.variantesDe(g);
+      t(g.id + " : toutes les variantes portent count cases",
+        v.every(function (x) { return x.voix.every(function (w) { return w.grid.length === g.count; }); }));
+      /* ⚠️ La liste des fills est prise UNE fois et gardée. Écrite en
+         ligne, `…filter(…)[0].n` faisait CRASHER le banc dès qu'une
+         mutation retirait le fill — et un banc qui crashe cache les
+         autres rouges (note 19 §4, déjà relevé une fois). */
+      const fills = v.filter(function (x) { return x.type === "fill"; });
+      eq(g.id + " : un fill et un seul", fills.length, 1);
+      eq(g.id + " : la base ne peut pas se suivre elle-même",
+        JSON.stringify(g.interdits), '{"0":[0]}');
+      /* le fill n'est tiré qu'en fin de phrase, et il l'est à chaque fois */
+      const nFill = fills.length ? fills[0].n : -1;
+      eq(g.id + " : en fin de phrase, le fill et lui seul",
+        BR.variantesLegales(g, 3, "A", 0).map(function (x) { return x.n; }).join(), String(nFill));
+      t(g.id + " : hors fin de phrase, jamais le fill",
+        BR.variantesLegales(g, 1, "A", 0).every(function (x) { return x.n !== nFill; }));
+      /* et sur la durée, la mesure de base ne se répète jamais */
+      let prec = 0, repets = 0;
+      for (let m = 1; m < 2000; m++) {
+        const n = BR.tirerVariante(g, m, "A", prec, Math.random());
+        if (n === 0 && prec === 0) repets++;
+        prec = n;
+      }
+      eq("⭐ " + g.id + " : 2 000 mesures sans jamais répéter la mesure de base", repets, 0);
+    });
+  })();
+
+  function refusV(nom, g, motif) {
+    const p = BR.verifierGroove(g);
+    t("refusé — " + nom + (p.length ? "" : " (ACCEPTÉ À TORT)"), p.length > 0);
+    if (motif) t("refusé pour la bonne raison — " + nom,
+      p.some(function (x) { return x.indexOf(motif) >= 0; }));
+  }
+  refusV("variantes n'est pas un tableau", base({variantes:{n:1}}), "n'est pas un tableau");
+  refusV("une variante numérotée 0", base({variantes:[{n:0, voix:[K]}]}), "entier ≥ 1");
+  refusV("une variante sans n", base({variantes:[{voix:[K]}]}), "entier ≥ 1");
+  refusV("deux variantes au même n",
+    base({variantes:[{n:1, voix:[K]}, {n:1, voix:[K]}]}), "déclaré deux fois");
+  refusV("poids nul", base({variantes:[{n:1, poids:0, voix:[K]}]}), "poids");
+  refusV("poids négatif", base({variantes:[{n:1, poids:-2, voix:[K]}]}), "poids");
+  refusV("poids de groove nul", base({poids:0}), "poids du groove");
+  refusV("type inconnu", base({variantes:[{n:1, type:"break", voix:[K]}]}), "type inconnu");
+  refusV("phrase non entière", base({phrase:2.5}), "phrase");
+  refusV("phrase nulle", base({phrase:0}), "phrase");
+  /* ⚑ Une variante porte son PROPRE jeu de voix : les mêmes exigences
+     doivent s'y appliquer, sinon une variante illégale entrerait par la
+     porte de service. */
+  refusV("variante sans voix", base({variantes:[{n:1}]}), "aucune voix");
+  refusV("variante à grille trop courte",
+    base({variantes:[{n:1, voix:[{role:"x", timbre:"kick", grid:"X..."}]}]}), "cases pour count");
+  refusV("variante hors alphabet",
+    base({variantes:[{n:1, voix:[{role:"x", timbre:"kick", grid:"X..?............"}]}]}), "hors alphabet");
+  refusV("variante à timbre inconnu",
+    base({variantes:[{n:1, voix:[{role:"x", timbre:"tambourin", grid:"X..............."}]}]}), "timbre inconnu");
+  refusV("interdits n'est pas un objet", base({interdits:[0]}), "n'est pas un objet");
+  refusV("interdits désigne une variante absente",
+    base({variantes:[{n:1, voix:[K]}], interdits:{"7":[0]}}), "ne désigne aucune variante");
+  refusV("interdits interdit une variante absente",
+    base({variantes:[{n:1, voix:[K]}], interdits:{"0":[9]}}), "ne désigne aucune variante");
+  refusV("interdits[x] n'est pas un tableau",
+    base({variantes:[{n:1, voix:[K]}], interdits:{"0":1}}), "n'est pas un tableau");
+  t("un groove à variantes correctes est légal",
+    BR.verifierGroove(base({variantes:[{n:1, poids:3, voix:[K2]}], interdits:{"0":[0]}})).length === 0);
+  t("interdits seul, sans variantes, reste légal",
+    BR.verifierGroove(base({interdits:{"0":[0]}})).length === 0);
+
+  /* ---- 21.2 Les poids, balayés case par case ----------------------- */
+  (function () {
+    const g = base({poids:8, variantes:[{n:1, poids:2, voix:[K2]}]});
+    /* 8 contre 2 : la bascule tombe à 0,8 exactement. Une assertion sur
+       « ça a l'air pondéré » ne prouverait rien ; celle-ci place la
+       frontière. */
+    eq("aléa 0 : la variante 0", BR.tirerVariante(g, 0, "A", -1, 0), 0);
+    eq("aléa 0,79 : encore la 0", BR.tirerVariante(g, 0, "A", -1, 0.79), 0);
+    eq("aléa 0,80 : la 1 commence", BR.tirerVariante(g, 0, "A", -1, 0.80), 1);
+    eq("aléa 0,999 : la 1", BR.tirerVariante(g, 0, "A", -1, 0.999), 1);
+    let n0 = 0;
+    for (let k = 0; k < 1000; k++) if (BR.tirerVariante(g, 0, "A", -1, k / 1000) === 0) n0++;
+    eq("balayage de 1 000 aléas : 800 pour la variante 0", n0, 800);
+    /* ⚠️ un aléa aberrant ne doit pas sortir de la liste légale */
+    ["", null, NaN, -1, 2, 1].forEach(function (x) {
+      t("aléa aberrant (" + String(x) + ") : le tirage reste légal",
+        [0, 1].indexOf(BR.tirerVariante(g, 0, "A", -1, x)) >= 0);
+    });
+  })();
+
+  /* ---- 21.3 Les quatre filtres de la note 01 ------------------------ */
+  function ns(l) { return l.map(function (v) { return v.n; }).sort().join(","); }
+
+  (function () {
+    /* 1 · section — c'est la GRILLE qui choisit, pas le groove */
+    const g = base({variantes:[{n:1, section:"B", voix:[K2]}, {n:2, section:"*", voix:[K2]}]});
+    eq("section A : la variante de section B est écartée",
+      ns(BR.variantesLegales(g, 0, "A", -1)), "0,2");
+    eq("section B : la variante de section B entre",
+      ns(BR.variantesLegales(g, 0, "B", -1)), "1,2");
+    eq("la grille est en A tant qu'elle n'a pas de marqueur de partie",
+      BR.sectionCourante(), "A");
+    /* ⚑ le repli : une section sans aucune variante ne se tait pas */
+    const h = base({variantes:[{n:1, section:"B", voix:[K2]}]});
+    eq("section C : aucune variante ne correspond — le filtre est annulé",
+      ns(BR.variantesLegales(h, 0, "C", -1)), "0,1");
+  })();
+
+  (function () {
+    /* 2 · le fill tombe par POSITION, phrase = 4 */
+    const g = base({phrase:4, variantes:[{n:1, type:"fill", voix:[K2]}]});
+    eq("mesure 0 : le fill est écarté", ns(BR.variantesLegales(g, 0, "A", -1)), "0");
+    eq("mesure 1 : le fill est écarté", ns(BR.variantesLegales(g, 1, "A", -1)), "0");
+    eq("mesure 2 : le fill est écarté", ns(BR.variantesLegales(g, 2, "A", -1)), "0");
+    eq("mesure 3 : le fill, et RIEN d'autre", ns(BR.variantesLegales(g, 3, "A", -1)), "1");
+    eq("mesure 7 : encore le fill (la phrase tourne)", ns(BR.variantesLegales(g, 7, "A", -1)), "1");
+    /* phrase = 2 : le fill tombe deux fois plus souvent */
+    const h = base({phrase:2, variantes:[{n:1, type:"fill", voix:[K2]}]});
+    eq("phrase 2 : le fill est en mesure 1", ns(BR.variantesLegales(h, 1, "A", -1)), "1");
+    eq("phrase 2 : pas de fill en mesure 2", ns(BR.variantesLegales(h, 2, "A", -1)), "0");
+    /* ⚑ le repli, et c'est l'arbitrage : un groove SANS fill ne se tait
+       pas une mesure sur quatre. Se taire par accident est pire que se
+       répéter — c'est le défaut qu'on venait corriger. */
+    const sansFill = base({variantes:[{n:1, voix:[K2]}]});
+    eq("aucun fill déclaré : la fin de phrase ne se tait pas",
+      ns(BR.variantesLegales(sansFill, 3, "A", -1)), "0,1");
+  })();
+
+  (function () {
+    /* 3 · le post-fill n'a de sens qu'après un fill, et alors il prime */
+    const g = base({phrase:4, variantes:[
+      {n:1, type:"fill", voix:[K2]},
+      {n:2, type:"post-fill", voix:[K2]}]});
+    eq("hors post-fill : la variante post-fill est écartée",
+      ns(BR.variantesLegales(g, 0, "A", 0)), "0");
+    eq("juste après le fill : le post-fill, et lui seul",
+      ns(BR.variantesLegales(g, 0, "A", 1)), "2");
+    eq("deux mesures après le fill : retour au normal",
+      ns(BR.variantesLegales(g, 1, "A", 2)), "0");
+  })();
+
+  (function () {
+    /* 4 · interdits — la clé est la PRÉCÉDENTE, la liste ce qui ne peut
+       pas suivre. Le sens était implicite avant la note 01. */
+    const g = base({variantes:[{n:1, voix:[K2]}], interdits:{"0":[0]}});
+    eq("après la 0 : la 0 ne peut pas suivre",
+      ns(BR.variantesLegales(g, 0, "A", 0)), "1");
+    eq("après la 1 : les deux restent permises",
+      ns(BR.variantesLegales(g, 0, "A", 1)), "0,1");
+    eq("au tout premier tirage : rien n'est encore interdit",
+      ns(BR.variantesLegales(g, 0, "A", -1)), "0,1");
+    /* ⚑ Le SENS, éprouvé par un cas ASYMÉTRIQUE — c'est le seul qui le
+       fasse. {"0":[1]} : après la 0, la 1 est interdite ; après la 1, la
+       0 reste permise. Une table symétrique se lirait pareil dans les
+       deux sens et ne prouverait rien. */
+    const asym = base({variantes:[{n:1, voix:[K2]}], interdits:{"0":[1]}});
+    eq("clé 0 → la 1 ne peut pas suivre la 0",
+      ns(BR.variantesLegales(asym, 0, "A", 0)), "0");
+    eq("et la 0 peut suivre la 1", ns(BR.variantesLegales(asym, 0, "A", 1)), "0,1");
+    /* la clé se lit aussi bien en nombre qu'en chaîne */
+    const asymN = base({variantes:[{n:1, voix:[K2]}], interdits:{0:[1]}});
+    eq("une clé numérique se lit comme une clé chaîne",
+      ns(BR.variantesLegales(asymN, 0, "A", 0)), "0");
+    /* ⚑ le repli : une table qui interdirait TOUT est annulée, sinon le
+       tirage se bloquerait — et un blocage sonnerait comme une panne */
+    const mur = base({variantes:[{n:1, voix:[K2]}], interdits:{"0":[0, 1]}});
+    eq("une table qui interdit tout est annulée",
+      ns(BR.variantesLegales(mur, 0, "A", 0)), "0,1");
+  })();
+
+  /* ---- 21.4 ⭐ LA CIBLE : la batterie cesse de se répéter ----------- */
+  (function () {
+    const TOURS = 4000;
+    /* {"0":[0],"1":[1]} : la formule minimale de la note 01 — aucune
+       variante ne peut se suivre elle-même. */
+    const g = base({variantes:[{n:1, voix:[K2]}], interdits:{"0":[0], "1":[1]}});
+    let prec = -1, repets = 0, vus = {};
+    for (let m = 0; m < TOURS; m++) {
+      const n = BR.tirerVariante(g, m, "A", prec, Math.random());
+      if (n === prec) repets++;
+      vus[n] = (vus[n] || 0) + 1;
+      prec = n;
+    }
+    eq("⭐ " + TOURS + " mesures, aucune variante ne se suit elle-même", repets, 0);
+    t("les deux variantes sortent l'une et l'autre", vus[0] > 0 && vus[1] > 0);
+    eq("et elles alternent donc strictement", vus[0] + vus[1], TOURS);
+
+    /* ⚑ Le contrôle qui donne son sens au précédent : SANS la table, la
+       répétition revient. Une assertion « zéro répétition » qui passerait
+       aussi sans interdits ne testerait rien. */
+    const nu = base({variantes:[{n:1, voix:[K2]}]});
+    let prec2 = -1, repets2 = 0;
+    for (let m = 0; m < TOURS; m++) {
+      const n = BR.tirerVariante(nu, m, "A", prec2, Math.random());
+      if (n === prec2) repets2++;
+      prec2 = n;
+    }
+    t("sans interdits, la répétition existe bel et bien (" + repets2 + " sur " + TOURS + ")",
+      repets2 > TOURS / 10);
+  })();
+
+  (function () {
+    /* la phrase, sur la durée : le fill tombe où il doit, et nulle part
+       ailleurs — et le post-fill le suit toujours */
+    const g = base({phrase:4, variantes:[
+      {n:1, type:"fill", voix:[K2]},
+      {n:2, type:"post-fill", voix:[K2]}]});
+    let prec = -1, fautes = 0, fills = 0, postOk = 0, postAttendus = 0;
+    for (let m = 0; m < 400; m++) {
+      const n = BR.tirerVariante(g, m, "A", prec, Math.random());
+      const finDePhrase = (m % 4) === 3;
+      if ((n === 1) !== finDePhrase) fautes++;
+      if (n === 1) fills++;
+      if (prec === 1) { postAttendus++; if (n === 2) postOk++; }
+      prec = n;
+    }
+    eq("400 mesures : le fill ne tombe QUE en fin de phrase", fautes, 0);
+    eq("et il y tombe à chaque fois", fills, 100);
+    eq("le post-fill suit systématiquement le fill", postOk, postAttendus);
+    t("il y a bien eu des post-fills à vérifier", postAttendus > 0);
+  })();
+
+  /* ---- 21.5 À travers l'ordonnanceur : ce qui sonne change ---------- */
+  (function () {
+    function poser(txt, battues, groove, opts) {
+      opts = opts || {};
+      F.etat.battues = battues; F.etat.subdivision = 1;
+      F.etat.tonalite = ""; F.etat.atelier = false;
+      F.etat.impro = ("impro" in opts) ? opts.impro : false;
+      F.etat.imprGap = ("gap" in opts) ? opts.gap : 0;
+      F.etat.batterie = ("batterie" in opts) ? opts.batterie : true;
+      F.etat.batterieGap = ("batterieGap" in opts) ? opts.batterieGap : true;
+      F.etat.groove = groove; F.etat.grooveDensite = 3;
+      const r = F.lireBoucle(txt, battues);
+      F.etat.mesures = r.mesures;
+      F.construireTimeline();
+    }
+    /* deux variantes qui ne sonnent PAS pareil : une frappe contre trois.
+       Avec {"0":[0],"1":[1]} l'alternance est stricte, donc le compte des
+       frappes par mesure est prévisible — un tirage devient une
+       assertion exacte, et non une tendance. */
+    const g = {famille:"essai", id:"es-ordo", label:"essai",
+               count:16, battues:4, min:40, max:200, jam:100,
+               voix:[{role:"gc", timbre:"kick", grid:"X..............."}],
+               variantes:[{n:1, voix:[{role:"gc", timbre:"kick", grid:"X...X...X...X..."}]}],
+               interdits:{"0":[0], "1":[1]}};
+    const r = BR.poserGrooves([g]);
+    eq("le groove d'essai entre par la porte du corpus", r.pris.join(), "es-ordo");
+    eq("et rien n'est refusé", r.refus.length, 0);
+
+    poser("C | G | Am | F", 4, "es-ordo");
+    BR.reinitPercu();
+    const parMesure = [];
+    for (let i = 0; i < F.timeline.length; i++) {
+      BR.avancerVariante(i);
+      if (F.timeline[i].temps === 0) parMesure.push({v:BR.varianteCourante(), n:0});
+      parMesure[parMesure.length - 1].n += BR.planPercu(i).length;
+    }
+    eq("quatre mesures parcourues", parMesure.length, 4);
+    /* ⭐ Un groove s'annonce avant de varier. Et sans cette règle, une
+       table {"0":[0]} rendrait la mesure de base IMPOSSIBLE au démarrage :
+       le seul endroit du cycle où elle n'a pas de précédente à contredire
+       serait justement celui où on l'interdirait. */
+    eq("la première mesure d'un cycle est la mesure de base", parMesure[0].v, 0);
+    t("les variantes alternent strictement d'une mesure à l'autre",
+      parMesure.every(function (m, k) { return k === 0 || m.v !== parMesure[k - 1].v; }));
+    t("⭐ et le nombre de frappes suit la variante — la mesure change vraiment",
+      parMesure.every(function (m) { return m.n === (m.v === 0 ? 1 : 4); }));
+    t("les deux variantes ont été entendues",
+      parMesure.some(function (m) { return m.v === 0; }) &&
+      parMesure.some(function (m) { return m.v === 1; }));
+
+    /* ⚠️ le tirage n'appartient PAS à planPercu : redemander le plan d'un
+       temps ne doit pas retirer une variante. Sans cette assertion, un
+       banc qui appelle planPercu deux fois lirait deux mesures
+       différentes et personne ne saurait pourquoi. */
+    poser("C | G", 4, "es-ordo");
+    BR.reinitPercu();
+    BR.avancerVariante(0);
+    const v1 = BR.varianteCourante();
+    BR.planPercu(0); BR.planPercu(0); BR.planPercu(1);
+    eq("planPercu ne tire pas : la variante n'a pas bougé", BR.varianteCourante(), v1);
+    /* et le tirage ne se refait pas en cours de mesure */
+    BR.avancerVariante(1); BR.avancerVariante(2); BR.avancerVariante(3);
+    eq("un seul tirage par mesure, pas un par temps", BR.varianteCourante(), v1);
+    BR.avancerVariante(4);
+    t("la mesure suivante, elle, retire", BR.varianteCourante() !== v1);
+
+    /* ⚑ le cycle avance pendant un gap : la phrase est une horloge, pas
+       un son. Sinon le premier fill après un gap tomberait n'importe où. */
+    /* la même règle sur un groove PUBLIC, celui qui interdit la répétition */
+    poser("C | G | Am | F", 4, "rk-base");
+    BR.reinitPercu();
+    const suitePub = [];
+    for (let i = 0; i < F.timeline.length; i++) {
+      BR.avancerVariante(i);
+      if (F.timeline[i].temps === 0) suitePub.push(BR.varianteCourante());
+    }
+    eq("rk-base : la mesure de base ouvre le cycle", suitePub[0], 0);
+    t("rk-base : la base ne se répète jamais",
+      suitePub.every(function (v, k) { return k === 0 || !(v === 0 && suitePub[k - 1] === 0); }));
+    eq("rk-base : la quatrième mesure est le fill", suitePub[3], 3);
+
+    poser("C | G | Am | F", 4, "es-ordo", {impro:true, gap:2, batterieGap:true});
+    BR.reinitPercu();
+    const suite = [];
+    for (let i = 0; i < F.timeline.length; i++) {
+      BR.avancerVariante(i);
+      if (F.timeline[i].temps === 0) suite.push(BR.varianteCourante());
+    }
+    eq("pendant le gap aussi, quatre mesures ont été tirées", suite.length, 4);
+    t("et elles alternent malgré le silence",
+      suite.every(function (v, k) { return k === 0 || v !== suite[k - 1]; }));
+
+    /* ⚑ La remise à zéro, ASSERTÉE et non supposée. Telle qu'elle était
+       d'abord écrite, cette assertion restait verte quand reinitPercu
+       oubliait la variante : elle la lisait alors qu'elle valait déjà 0
+       une fois sur deux. On amène donc l'état AILLEURS qu'à zéro avant
+       de remettre à zéro — sinon la garde passerait pour testée. */
+    poser("C | G | Am | F", 4, "es-ordo");
+    BR.reinitPercu();
+    let pas = 0;
+    for (let i = 0; i < F.timeline.length && BR.varianteCourante() !== 1; i++) { BR.avancerVariante(i); pas++; }
+    eq("l'état a bien été amené sur la variante 1", BR.varianteCourante(), 1);
+    BR.reinitPercu();
+    eq("reinitPercu : retour à la variante 0", BR.varianteCourante(), 0);
+    /* ⚑ Et le COMPTEUR DE MESURES repart de zéro, lui aussi. Il faut une
+       boucle de TROIS mesures contre une phrase de QUATRE pour le voir :
+       sur une boucle de quatre, le fill retomberait au même endroit au
+       second tour même sans remise à zéro, et l'assertion serait verte
+       pour rien. C'est la garde inatteignable de la note 16 §3, évitée
+       de justesse — la première écriture ne la voyait pas. */
+    const gph = {famille:"essai", id:"es-phrase", label:"essai",
+                 count:16, battues:4, min:40, max:200, jam:100, phrase:4,
+                 voix:[{role:"gc", timbre:"kick", grid:"X..............."}],
+                 variantes:[{n:1, type:"fill",
+                             voix:[{role:"gc", timbre:"kick", grid:"X...X...X...X..."}]}]};
+    eq("le groove de phrase entre", BR.poserGrooves([gph]).refus.length, 0);
+    function troisMesures() {
+      const out = [];
+      for (let i = 0; i < F.timeline.length; i++) {
+        BR.avancerVariante(i);
+        if (F.timeline[i].temps === 0) out.push(BR.varianteCourante());
+      }
+      return out.join(",");
+    }
+    poser("C | G | Am", 4, "es-phrase");
+    BR.reinitPercu();
+    eq("trois mesures, phrase de quatre : aucun fill", troisMesures(), "0,0,0");
+    eq("sans remise à zéro, le tour suivant commence par le fill", troisMesures(), "1,0,0");
+    BR.reinitPercu();
+    eq("après reinitPercu, la phrase repart de la mesure 0", troisMesures(), "0,0,0");
+    const ip = BR.GROOVES.map(function (x) { return x.id; }).indexOf("es-phrase");
+    if (ip >= 0) BR.GROOVES.splice(ip, 1);
+
+    /* ⚠️ le groove d'essai ne doit pas rester dans le corpus public */
+    const i = BR.GROOVES.map(function (x) { return x.id; }).indexOf("es-ordo");
+    if (i >= 0) BR.GROOVES.splice(i, 1);
+    eq("le groove d'essai est retiré du corpus", BR.GROOVES.length, 6);
+  })();
+
+  /* --- remise en état ------------------------------------------------ */
+  F.etat.batterie = false; F.etat.groove = "rk-base";
+  F.etat.grooveDensite = 3; F.etat.batterieGap = true;
+  F.etat.impro = false; F.etat.imprGap = 0;
+  F.etat.battues = memo.battues; F.etat.subdivision = memo.sub;
+  F.etat.tempo = memo.tempo; F.etat.clic = memo.clic;
+  F.etat.pad = memo.pad; F.etat.bourdon = memo.bourdon;
+  BR.reinitPercu();
   F.appliquerSaisie(memo.saisie);
   BR.majBatterie();
 })();
