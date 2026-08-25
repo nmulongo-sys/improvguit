@@ -1573,6 +1573,69 @@ function metreCalcule(g){
 /* Vérification d'un groove : rend la LISTE des reproches, vide si le
    groove est légal. Un booléen ne dirait pas ce qui cloche, et c'est
    ce que le banc doit pouvoir nommer. */
+/* Les reproches d'UN jeu de voix. Sorti de verifierGroove parce qu'une
+   variante porte son PROPRE jeu complet (note 01) : la même exigence
+   doit s'appliquer aux deux, et une exigence écrite deux fois finit
+   toujours par diverger — c'est ce que RHO_RANGS documente. */
+function verifierVoix(voix, count, prefixe, p){
+  if(!Array.isArray(voix) || !voix.length){ p.push(prefixe + "aucune voix"); return; }
+  voix.forEach(function(v, k){
+    const nom = prefixe + "voix " + k + " (" + (v && v.role ? v.role : "?") + ")";
+    if(!v || typeof v.grid !== "string"){ p.push(nom + " : pas de grille"); return; }
+    if(v.grid.length !== count)
+      p.push(nom + " : " + v.grid.length + " cases pour count " + count);
+    const vus = {};
+    for(let i=0;i<v.grid.length;i++){
+      const c = v.grid.charAt(i);
+      if(CASES_LEGALES.indexOf(c) < 0 && !vus[c]){ vus[c] = 1; p.push(nom + " : caractère « " + c + " » hors alphabet"); }
+    }
+    if(!TIMBRES[v.timbre]) p.push(nom + " : timbre inconnu « " + v.timbre + " »");
+  });
+}
+
+/* Les champs de la note 01 : poids, variantes[], type, section, phrase,
+   interdits. ⭐ TOUS facultatifs — un groove sans variantes se comporte
+   exactement comme avant, et les six patrons publics n'ont pas bougé
+   d'un caractère. C'est la condition qui rendait l'ajout acceptable.
+   ⚠️ Facultatif ne veut pas dire non gardé : ce qui est DÉCLARÉ est
+   vérifié, sinon une variante muette passerait pour une variante. */
+const TYPES_VARIANTE = {normal:1, fill:1, "post-fill":1};
+function verifierVariantes(g, p){
+  if(g.poids !== undefined && !(g.poids > 0)) p.push("poids du groove nul ou négatif");
+  if(g.phrase !== undefined && !((g.phrase | 0) >= 1 && g.phrase === (g.phrase | 0)))
+    p.push("phrase doit être un entier ≥ 1");
+  if(g.variantes === undefined && g.interdits === undefined) return;
+  const liste = g.variantes === undefined ? [] : g.variantes;
+  if(!Array.isArray(liste)){ p.push("variantes n'est pas un tableau"); return; }
+  const vus = {0:1};
+  liste.forEach(function(v, k){
+    const nom = "variante " + k;
+    if(!v || typeof v !== "object"){ p.push(nom + " : absente"); return; }
+    const n = v.n;
+    if(!(n === (n | 0) && n >= 1)) p.push(nom + " : n doit être un entier ≥ 1 (0 est la variante de base)");
+    else if(vus[n]) p.push(nom + " : n " + n + " déclaré deux fois");
+    else vus[n] = 1;
+    if(v.poids !== undefined && !(v.poids > 0)) p.push(nom + " : poids nul ou négatif");
+    if(v.type !== undefined && !TYPES_VARIANTE[v.type]) p.push(nom + " : type inconnu « " + v.type + " »");
+    if(v.section !== undefined && typeof v.section !== "string") p.push(nom + " : section n'est pas une chaîne");
+    verifierVoix(v.voix, g.count, nom + " · ", p);
+  });
+  if(g.interdits !== undefined){
+    if(!g.interdits || typeof g.interdits !== "object" || Array.isArray(g.interdits)){
+      p.push("interdits n'est pas un objet"); return;
+    }
+    Object.keys(g.interdits).forEach(function(cle){
+      const a = parseInt(cle, 10);
+      if(!(String(a) === String(cle).trim() && vus[a])) p.push("interdits : « " + cle + " » ne désigne aucune variante déclarée");
+      const l = g.interdits[cle];
+      if(!Array.isArray(l)){ p.push("interdits[" + cle + "] n'est pas un tableau"); return; }
+      l.forEach(function(b){
+        if(!(b === (b | 0) && vus[b])) p.push("interdits[" + cle + "] : " + b + " ne désigne aucune variante déclarée");
+      });
+    });
+  }
+}
+
 function verifierGroove(g){
   const p = [];
   if(!g || typeof g !== "object") return ["groove absent"];
@@ -1581,19 +1644,8 @@ function verifierGroove(g){
   if(!(b > 0)) p.push("battues nulles");
   if(g.count > 0 && b > 0 && g.count % b !== 0)
     p.push("division non entière : count " + g.count + " sur " + b + " temps");
-  if(!Array.isArray(g.voix) || !g.voix.length) p.push("aucune voix");
-  (g.voix || []).forEach(function(v, k){
-    const nom = "voix " + k + " (" + (v && v.role ? v.role : "?") + ")";
-    if(!v || typeof v.grid !== "string"){ p.push(nom + " : pas de grille"); return; }
-    if(v.grid.length !== g.count)
-      p.push(nom + " : " + v.grid.length + " cases pour count " + g.count);
-    const vus = {};
-    for(let i=0;i<v.grid.length;i++){
-      const c = v.grid.charAt(i);
-      if(CASES_LEGALES.indexOf(c) < 0 && !vus[c]){ vus[c] = 1; p.push(nom + " : caractère « " + c + " » hors alphabet"); }
-    }
-    if(!TIMBRES[v.timbre]) p.push(nom + " : timbre inconnu « " + v.timbre + " »");
-  });
+  verifierVoix(g.voix, g.count, "", p);
+  verifierVariantes(g, p);
   /* ⚑ metre est un SECOND dépositaire de la même vérité — le défaut que
      RHO_RANGS documente. On le garde pour la lisibilité humaine, et on
      exige qu'il concorde avec le calcul : une contradiction rougit au
@@ -1611,18 +1663,58 @@ function verifierGroove(g){
    les seuls à rendre battues démontrable À L'USAGE, et pas seulement
    au banc. */
 const GROOVES = [
+  /* ⭐ Les deux patrons de rock portent des VARIANTES — et ce sont les
+     seuls. Ailleurs le tirage existe mais n'a rien à tirer, ce qui est
+     exact et se dit : la mécanique est publique, le répertoire ne l'est
+     pas. Une mesure de relance et un fill de fin de phrase se trouvent
+     dans n'importe quelle méthode de batterie depuis un siècle ; ce ne
+     sont pas des relevés.
+     ⚑ `interdits:{"0":[0]}` est la formule minimale de la note 01 : la
+     mesure de base ne peut pas se suivre elle-même. C'est ELLE qui
+     corrige le défaut, pas le hasard — un tirage pondéré sans contrainte
+     rejouerait la même mesure huit fois sur onze. */
   {famille:"rock", id:"rk-base", label:"Rock de base",
    count:16, battues:4, metre:"bin", min:60, max:132, jam:96,
+   poids:8, phrase:4, interdits:{"0":[0]},
    voix:[{role:"grosse-caisse", timbre:"kick",  grid:"X.......X......."},
          {role:"caisse-claire",  timbre:"snare", grid:"....X.......X..."},
-         {role:"charleston",     timbre:"hat",   grid:"x.x.x.x.x.x.x.x."}]},
+         {role:"charleston",     timbre:"hat",   grid:"x.x.x.x.x.x.x.x."}],
+   variantes:[
+     /* la grosse caisse relance sur le « et » du deuxième temps */
+     {n:1, poids:3, type:"normal",
+      voix:[{role:"grosse-caisse", timbre:"kick",  grid:"X.....x.X......."},
+            {role:"caisse-claire",  timbre:"snare", grid:"....X.......X..."},
+            {role:"charleston",     timbre:"hat",   grid:"x.x.x.x.x.x.x.x."}]},
+     /* une levée sur le « et » du quatrième */
+     {n:2, poids:2, type:"normal",
+      voix:[{role:"grosse-caisse", timbre:"kick",  grid:"X.......X.....x."},
+            {role:"caisse-claire",  timbre:"snare", grid:"....X.......X..."},
+            {role:"charleston",     timbre:"hat",   grid:"x.x.x.x.x.x.x.x."}]},
+     /* le fill : quatre doubles à la caisse claire, et le charleston
+        se tait — c'est ce qui le fait entendre comme une fin de phrase */
+     {n:3, poids:1, type:"fill",
+      voix:[{role:"grosse-caisse", timbre:"kick",  grid:"X.......X......."},
+            {role:"caisse-claire",  timbre:"snare", grid:"....X.......xxxx"},
+            {role:"charleston",     timbre:"hat",   grid:"x.x.x.x.x.x....."}]}]},
 
   {famille:"rock", id:"rk-croches", label:"Backbeat aux croches",
    count:16, battues:4, metre:"bin", min:70, max:150, jam:104,
+   poids:8, phrase:4, interdits:{"0":[0]},
    voix:[{role:"grosse-caisse", timbre:"kick",  grid:"X...x..X..x....."},
          {role:"caisse-claire",  timbre:"snare", grid:"....X.......X..."},
          {role:"charleston",     timbre:"hat",   grid:"x.x.x.x.x.x.x.x."},
-         {role:"charleston ouvert", timbre:"hat-ouvert", grid:"..............x."}]},
+         {role:"charleston ouvert", timbre:"hat-ouvert", grid:"..............x."}],
+   variantes:[
+     /* la seconde mesure du couple : une croche de plus au quatrième temps */
+     {n:1, poids:6, type:"normal",
+      voix:[{role:"grosse-caisse", timbre:"kick",  grid:"X...x..X..x..x.."},
+            {role:"caisse-claire",  timbre:"snare", grid:"....X.......X..."},
+            {role:"charleston",     timbre:"hat",   grid:"x.x.x.x.x.x.x.x."},
+            {role:"charleston ouvert", timbre:"hat-ouvert", grid:"..............x."}]},
+     {n:2, poids:1, type:"fill",
+      voix:[{role:"grosse-caisse", timbre:"kick",  grid:"X...x..X........"},
+            {role:"caisse-claire",  timbre:"snare", grid:"....X.......x.xx"},
+            {role:"charleston",     timbre:"hat",   grid:"x.x.x.x.x.x....."}]}]},
 
   {famille:"blues", id:"sh-shuffle", label:"Shuffle",
    count:12, battues:4, metre:"tern", min:60, max:132, jam:88,
@@ -1805,13 +1897,17 @@ function batterieJoue(){ return batterieArmee() && !batterieMuette(); }
 
 /* Les cases d'UN temps, en fraction de temps. Pur, sans audio et sans
    horloge : c'est cette fonction que le banc éprouve. */
-function casesDuTemps(g, bt, densite){
+function casesDuTemps(g, bt, densite, voix){
   const out = [];
   const c = casesParTemps(g);
-  if(!g || !Array.isArray(g.voix) || !(c > 0)) return out;
+  /* ⚑ Le jeu de voix est un ARGUMENT, et son défaut est celui du groove.
+     C'est ce qui fait que les variantes n'ont demandé aucune ligne ici :
+     une variante, c'est le même calcul sur d'autres grilles. */
+  const jeu = Array.isArray(voix) ? voix : (g ? g.voix : null);
+  if(!g || !Array.isArray(jeu) || !(c > 0)) return out;
   if(bt < 0 || bt >= battuesGroove(g)) return out;
   const d = Math.max(1, Math.min(3, densite | 0 || 3));
-  g.voix.forEach(function(v){
+  jeu.forEach(function(v){
     if(typeof v.grid !== "string" || v.grid.length !== g.count) return;
     const appui = !!APPUI[v.timbre];
     if(d === 1 && !appui) return;
@@ -1828,6 +1924,121 @@ function casesDuTemps(g, bt, densite){
   return out;
 }
 
+/* ── Le tirage de variante : la batterie cesse de se répéter ──────
+   Le défaut nommé par le balayage RealDrums (note 06) et spécifié par
+   la note 01 : notre batterie rejouait la même mesure indéfiniment, ce
+   qu'aucun batteur ne fait. Le remède n'est pas d'ajouter du hasard,
+   c'est d'ajouter une CONTRAINTE — `interdits` — et de tirer dedans.
+   ⭐ Tout ce bloc est pur et sans horloge : `tirerVariante` reçoit son
+   aléa en argument. C'est ce qui rend un tirage assertable, alors qu'un
+   Math.random() enfoui ne l'est pas. */
+
+/* La variante 0, c'est `voix` — le schéma du métronome n'est pas cassé
+   (note 01). Les défauts sont ceux du tableau de la note 01 : poids 8
+   pour la base, 1 pour une variante déclarée, section « A », type
+   « normal ». */
+function variantesDe(g){
+  const out = [];
+  if(!g) return out;
+  out.push({n:0, poids:(g.poids > 0 ? g.poids : 8), type:"normal",
+            section:(typeof g.section === "string" ? g.section : "A"), voix:g.voix});
+  (Array.isArray(g.variantes) ? g.variantes : []).forEach(function(v){
+    if(!v || typeof v !== "object") return;
+    out.push({n:v.n | 0, poids:(v.poids > 0 ? v.poids : 1),
+              type:TYPES_VARIANTE[v.type] ? v.type : "normal",
+              section:(typeof v.section === "string" ? v.section : "A"), voix:v.voix});
+  });
+  return out;
+}
+function voixVariante(g, n){
+  const t = variantesDe(g).filter(function(v){ return v.n === (n | 0); })[0];
+  return t ? t.voix : (g ? g.voix : null);
+}
+function phraseDe(g){ return (g && g.phrase | 0) >= 1 ? (g.phrase | 0) : 4; }
+
+/* ⚑ La section vient de la GRILLE, pas du groove (note 01, repris de
+   Band-in-a-Box). La grille ne porte pas encore de marqueurs de partie :
+   on est donc en A, et on le dit au lieu de faire semblant. C'est ICI
+   que le marqueur se lira le jour où il existera, et nulle part
+   ailleurs. */
+function sectionCourante(){ return "A"; }
+
+/* Les variantes légales à cette mesure, dans l'ordre des quatre filtres
+   de la note 01. ⚑ CHAQUE filtre qui viderait la liste est ANNULÉ, et
+   c'est un arbitrage, pas une commodité : un groove sans fill se
+   tairait une mesure sur quatre, et une table d'interdits trop serrée
+   bloquerait le tirage. Se taire par accident est pire que se répéter —
+   c'est le défaut qu'on venait corriger. */
+function variantesLegales(g, mesure, section, prec){
+  let l = variantesDe(g);
+  if(!l.length) return l;
+  const sec = typeof section === "string" ? section : "A";
+  let f = l.filter(function(v){ return v.section === sec || v.section === "*"; });
+  if(f.length) l = f;
+  /* 2. le fill tombe en fin de phrase, par POSITION et non par hasard */
+  const ph = phraseDe(g);
+  const finDePhrase = ((mesure | 0) % ph) === ph - 1;
+  f = l.filter(function(v){ return finDePhrase ? v.type === "fill" : v.type !== "fill"; });
+  if(f.length) l = f;
+  /* 3. le post-fill n'a de sens qu'APRÈS un fill — et alors il prime */
+  const variantes = variantesDe(g);
+  const pv = variantes.filter(function(v){ return v.n === (prec | 0); })[0];
+  const apresFill = !!pv && pv.type === "fill";
+  f = l.filter(function(v){ return apresFill ? v.type === "post-fill" : v.type !== "post-fill"; });
+  if(f.length) l = f;
+  /* 4. interdits : la clé est la variante PRÉCÉDENTE, la liste est ce
+     qui ne peut pas suivre (note 01 — le sens était implicite avant). */
+  const tab = (g && g.interdits && typeof g.interdits === "object") ? g.interdits : null;
+  const bannis = tab ? (tab[String(prec | 0)] || tab[prec | 0] || []) : [];
+  if(Array.isArray(bannis) && bannis.length){
+    f = l.filter(function(v){ return bannis.indexOf(v.n) < 0; });
+    if(f.length) l = f;
+  }
+  return l;
+}
+
+/* Tirage pondéré. `alea` ∈ [0,1[ est un ARGUMENT : le banc le fournit,
+   l'ordonnanceur y met Math.random(). */
+function tirerVariante(g, mesure, section, prec, alea){
+  const l = variantesLegales(g, mesure, section, prec);
+  if(!l.length) return 0;
+  let total = 0;
+  l.forEach(function(v){ total += v.poids; });
+  if(!(total > 0)) return l[0].n;
+  let x = Math.min(0.9999999, Math.max(0, +alea || 0)) * total;
+  for(let k=0;k<l.length;k++){
+    x -= l[k].poids;
+    if(x < 0) return l[k].n;
+  }
+  return l[l.length - 1].n;
+}
+
+/* L'état du cycle. percuMesure est un compteur MONOTONE, pas l'index de
+   mesure de la timeline : une boucle d'une seule mesure ne changerait
+   jamais d'index, et la phrase ne tournerait pas. Même patron que
+   imprMesure. */
+let percuMesure = -1, percuVariante = 0, percuPrec = -1;
+function reinitPercu(){ percuMesure = -1; percuVariante = 0; percuPrec = -1; }
+function varianteCourante(){ return percuVariante; }
+/* Appelé UNE fois par temps. ⚠️ Le cycle avance même pendant un gap de
+   batterie : la phrase est une horloge, pas un son. Sinon le premier
+   fill après un gap tomberait n'importe où. */
+function avancerVariante(i){
+  const b = timeline[i];
+  if(!b || b.temps !== 0) return;
+  percuMesure++;
+  const g = grooveCourant();
+  if(!g){ percuPrec = -1; percuVariante = 0; return; }
+  /* ⭐ La PREMIÈRE mesure du cycle est la mesure de base, sans tirage.
+     Un groove s'annonce avant de varier — et sans cette règle, une table
+     {"0":[0]} rendrait la variante 0 impossible au démarrage : le seul
+     endroit du cycle où elle n'a pas de précédente à contredire serait
+     précisément celui où on l'interdirait. */
+  if(percuMesure === 0){ percuPrec = -1; percuVariante = 0; return; }
+  percuPrec = percuVariante;
+  percuVariante = tirerVariante(g, percuMesure, sectionCourante(), percuPrec, Math.random());
+}
+
 /* Le plan de la batterie AU TEMPS i — pur lui aussi. percuPasser() ne
    fait que le programmer, et c'est ce qui rend le gap, la coupure et
    les marqueurs de restitution assertables sans un seul son. */
@@ -1840,7 +2051,7 @@ function planPercu(i){
   /* C. : tout se tait. C... : la nappe tient, la section rythmique
      s'efface derrière — c'est le sens même du marqueur. */
   if(ten === "silence" || ten === "tenue") return [];
-  const cases = casesDuTemps(g, b.temps, etat.grooveDensite);
+  const cases = casesDuTemps(g, b.temps, etat.grooveDensite, voixVariante(g, percuVariante));
   /* C.. : un seul coup sec, sur le temps du marquage, et plus rien
      jusqu'à l'accord suivant. */
   if(ten === "frappe"){
@@ -1920,6 +2131,10 @@ function ordonnanceur(){
          lit l'état. Inversé, le retrait de la batterie commence un temps
          trop tard et finit un temps trop tôt — et le banc le fait rougir,
          il l'a déjà fait. */
+      /* ⚑ Le tirage AVANT la programmation, et une seule fois par temps :
+         percuPasser ne doit jamais tirer, sans quoi le plan d'un temps
+         dépendrait du nombre de fois qu'on le demande. */
+      avancerVariante(pointeur);
       percuPasser(prochainTemps, pointeur, parTemps);
       fileAttente.push({i:pointeur, t:prochainTemps});
     }
@@ -2762,6 +2977,7 @@ function effacerImpro(){
    grille qui a changé — c'est la même règle que reconstruire(). */
 function reinitImpro(){
   imprMesure = -1; imprBloc = -1; imprDebut = 0; imprPlan = null;
+  reinitPercu();
   imprMemo = {phrase:-1, plan:null};
   effacerImpro();
 }
@@ -3642,6 +3858,8 @@ if(typeof module !== "undefined" && module.exports){
                     triadeDeAccord, triadeAtelier, palier, etat, marques,
                     GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEAU_PERCU,
                     battuesGroove, casesParTemps, metreCalcule, verifierGroove, poserGrooves,
+                    variantesDe, voixVariante, phraseDe, sectionCourante, variantesLegales,
+                    tirerVariante, avancerVariante, reinitPercu, varianteCourante,
                     grooveCourant, groovesCompatibles, batterieArmee, batterieMuette,
                     batterieJoue, casesDuTemps, planPercu, majBatterie,
                     PROFIL_PUSH, regimeCroche, avancePush, volumeClic, VOLUME_CLIC, VOLUME_CLIC_BAS};
