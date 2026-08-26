@@ -1746,10 +1746,18 @@ const GROOVES = [
       voix:[{role:"grosse-caisse",     timbre:"kick",       grid:"X.....x.X......."},
             {role:"caisse-claire",      timbre:"snare",      grid:"....X.......X..."},
             {role:"charleston ouvert",  timbre:"hat-ouvert", grid:"X...X...X...X..."}]},
+     /* ⭐ Le fill de B garde la SIGNATURE de B. Le copier sur celui de A
+        faisait retomber la partie dans le timbre de l'autre au moment le
+        plus audible du cycle — la fin de phrase. Le charleston ouvert
+        tient les deux premiers temps puis se tait : le temps 3 dégagé
+        laisse les quatre doubles de caisse claire finir seules, et un
+        ouvert sonne trop long pour qu'on le laisse baver dessus.
+        ⚠️ Ce n'est pas du décor : le banc retirait la mesure de fill de
+        l'assertion de timbre de la partie B pour ne pas rougir. */
      {n:6, poids:1, type:"fill", section:"B",
-      voix:[{role:"grosse-caisse", timbre:"kick",  grid:"X.......X......."},
-            {role:"caisse-claire",  timbre:"snare", grid:"....X.......xxxx"},
-            {role:"charleston",     timbre:"hat",   grid:"x.x.x.x.x.x....."}]}]},
+      voix:[{role:"grosse-caisse",    timbre:"kick",       grid:"X.......X......."},
+            {role:"caisse-claire",     timbre:"snare",      grid:"....X.......xxxx"},
+            {role:"charleston ouvert", timbre:"hat-ouvert", grid:"X...X..........."}]}]},
 
   {famille:"rock", id:"rk-croches", label:"Backbeat aux croches",
    count:16, battues:4, metre:"bin", min:70, max:150, jam:104,
