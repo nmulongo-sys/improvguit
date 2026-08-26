@@ -3483,9 +3483,16 @@ const BR = win.eval("({GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEA
       enB.every(function (m) { return B_FAMILLE.indexOf(m.v) >= 0; }));
     eq("la fin de phrase appelle le fill DE B", (enB[3] || {}).v, 6);
     /* ⭐ l'assertion qui compte : ça s'ENTEND. Un marqueur qui ne
-       changerait aucun timbre ne serait qu'un champ de données. */
-    t("⭐ la partie B fait sonner le charleston ouvert",
-      enB.slice(0, 3).every(function (m) { return m.t.indexOf("hat-ouvert") >= 0; }));
+       changerait aucun timbre ne serait qu'un champ de données.
+       ⚑ AUCUN `slice` ici, et c'est le point : les QUATRE mesures sont
+       couvertes, fill compris. La borne `slice(0, 3)` qui tenait cette
+       ligne retirait la mesure 4 — c'est-à-dire exactement le fill —
+       parce que celui-ci était la copie de celui de A et n'ouvrait pas le
+       charleston. Elle ne testait pas la partie B, elle contournait son
+       défaut. La règle de la note 23 le dit : une assertion qui exclut le
+       cas gênant ne teste rien. */
+    t("⭐ la partie B fait sonner le charleston ouvert, fill compris",
+      enB.length === 4 && enB.every(function (m) { return m.t.indexOf("hat-ouvert") >= 0; }));
     t("⭐ et le nombre de frappes n'est pas le même qu'en A",
       !!enB[0] && !!enA[0] && enB[0].t.length !== enA[0].t.length);
 
@@ -3519,6 +3526,65 @@ const BR = win.eval("({GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEA
     eq("⭐ 1 000 mesures en B sans jamais répéter la base de B", repets, 0);
     eq("et les trois variantes de B ont toutes été entendues",
       Object.keys(vus).sort().join(), "4,5,6");
+  })();
+
+  /* ---- 22.6 ⭐ Le fill d'une partie garde la signature de SA partie -- */
+  (function () {
+    const rk = BR.GROOVES.filter(function (g) { return g.id === "rk-base"; })[0];
+    function vte(n) {
+      return (rk.variantes || []).filter(function (v) { return v.n === n; })[0] || null;
+    }
+    function grille(v, timbre) {
+      const x = ((v || {}).voix || []).filter(function (o) { return o.timbre === timbre; })[0];
+      return x ? x.grid : "";
+    }
+    const fillA = vte(3), fillB = vte(6), baseB = vte(4);
+
+    t("les deux fills et la base de B sont là", !!fillA && !!fillB && !!baseB);
+    eq("le fill de B est bien déclaré fill", (fillB || {}).type, "fill");
+    eq("et bien déclaré en B", (fillB || {}).section, "B");
+
+    /* ⭐ LA CIBLE. Le fill de B était la copie exacte de celui de A : au
+       moment le plus audible du cycle — la fin de phrase — la partie B
+       retombait dans le timbre de l'autre. */
+    t("⭐ le fill de B n'est plus la copie du fill de A",
+      JSON.stringify((fillB || {}).voix) !== JSON.stringify((fillA || {}).voix));
+    t("⭐ le fill de B ouvre le charleston",
+      grille(fillB, "hat-ouvert").indexOf("X") >= 0);
+    t("et n'emporte plus de charleston fermé", grille(fillB, "hat") === "");
+
+    /* ⚑ la garde générale, celle qui empêche le défaut de revenir par une
+       variante écrite plus tard : AUCUNE variante de B ne peut être muette
+       d'ouvert. Elle est écrite en balayage, pas en trois lignes à la main,
+       pour couvrir aussi les variantes qui n'existent pas encore. */
+    (rk.variantes || []).filter(function (v) { return v.section === "B"; })
+      .forEach(function (v) {
+        t("⚑ la variante " + v.n + " de la partie B déclare le charleston ouvert",
+          grille(v, "hat-ouvert").indexOf("X") >= 0);
+      });
+
+    /* mais un fill reste un fill, et c'est la caisse claire qui le dit :
+       elle est la même dans les deux parties. */
+    eq("la fin de phrase reste une fin de phrase : quatre doubles",
+      grille(fillB, "snare"), "....X.......xxxx");
+    eq("la caisse claire du fill est la même en A et en B",
+      grille(fillB, "snare"), grille(fillA, "snare"));
+
+    /* ⭐ et il se DISTINGUE de sa propre partie : l'ouvert se tait après le
+       deuxième temps pour dégager la roulade. Sans cet écart, le fill de B
+       sonnerait comme une mesure de B ordinaire et ne dirait plus la fin
+       de la phrase. */
+    eq("l'ouvert du fill de B tient deux temps, pas quatre",
+      grille(fillB, "hat-ouvert"), "X...X...........");
+    t("⭐ moins de frappes d'ouvert dans le fill que dans la base de B",
+      grille(fillB, "hat-ouvert").replace(/[^Xx]/g, "").length <
+      grille(baseB, "hat-ouvert").replace(/[^Xx]/g, "").length);
+
+    /* non-régression : la partie A n'a pas bougé. */
+    eq("non-régression : le fill de A garde son charleston fermé",
+      grille(fillA, "hat"), "x.x.x.x.x.x.....");
+    eq("non-régression : le fill de A n'ouvre rien",
+      grille(fillA, "hat-ouvert"), "");
   })();
 
   /* --- remise en état ------------------------------------------------ */
