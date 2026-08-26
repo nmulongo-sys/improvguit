@@ -1,5 +1,5 @@
-/* improvguit — validation headless. Hors dépôt (voir .gitignore).
-   node test.js */
+/* improvguit — validation headless. Suivi par git ; seul le corpus privé
+   (corpus.json, repertoire.json) reste hors dépôt. node test.js */
 "use strict";
 const fs = require("fs");
 const path = require("path");
@@ -22,12 +22,20 @@ t("aucune feuille de style externe", !/<link[^>]+stylesheet/i.test(HTML));
 t("aucun import ES externe", !/\bfrom\s+["']https?:/i.test(HTML));
 t("un seul fichier (pas de <script src>)", !/<script[^>]+\ssrc\s*=/i.test(HTML));
 
-/* Le répertoire est hors dépôt. Les séries qui en dépendent ne tournent que
-   s'il est posé à côté du test ; le moteur, lui, se valide sans lui. */
+/* Le corpus privé est hors dépôt. Les séries qui en dépendent ne tournent
+   que s'il est posé à côté du test — corpus.json (le fichier du chargeur
+   unique) ou, à défaut, l'ancien repertoire.json ; le moteur, lui, se
+   valide sans eux. */
+const CHEMIN_CORPUS = path.join(__dirname, "corpus.json");
 const CHEMIN_REP = path.join(__dirname, "repertoire.json");
-const REP = fs.existsSync(CHEMIN_REP)
-  ? JSON.parse(fs.readFileSync(CHEMIN_REP, "utf8"))
+const CORPUS_PRIVE = fs.existsSync(CHEMIN_CORPUS)
+  ? JSON.parse(fs.readFileSync(CHEMIN_CORPUS, "utf8"))
   : null;
+const REP = (CORPUS_PRIVE && Array.isArray(CORPUS_PRIVE.morceaux))
+  ? CORPUS_PRIVE
+  : fs.existsSync(CHEMIN_REP)
+    ? JSON.parse(fs.readFileSync(CHEMIN_REP, "utf8"))
+    : null;
 
 if (REP) {
   REP.morceaux.forEach(function (m) {
@@ -3599,10 +3607,194 @@ const BR = win.eval("({GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEA
   BR.majBatterie();
 })();
 
+/* ==================================================================
+   23 · LE CHARGEUR UNIQUE — un corpus.json, deux portes, tout échec DIT.
+   Arbitrage du 26 août : UN fichier, corpus/corpus.json à la racine du
+   SITE — hors du dossier miroir, qui ne contient que le miroir — avec
+   les clés `morceaux` et `grooves` (`grilles` réservée), chacune entrant
+   par SA porte : poserRepertoire(), poserGrooves(). Le réseau n'est
+   appelé qu'en http(s) — la promesse « hors ligne » reste vraie sur
+   file:// — et rien n'échoue en silence : absence, JSON invalide, clé
+   inconnue, groove refusé, tout est DIT dans #etatRep.
+   ⚑ Le réseau se simule ici par un thenable SYNCHRONE : le banc
+   n'attend jamais une microtâche que process.exit tuerait.
+   ------------------------------------------------------------------ */
+(function () {
+  /* ⚠️ jamais d'eval nu sur des noms qui n'existent pas dans un vieux
+     build : sur lui, cette série doit ROUGIR, pas faire crasher le banc
+     (règle de la note 23). Les replis rendent null, et null rougit. */
+  const C = win.eval("({" +
+    "poserCorpus: typeof poserCorpus === 'function' ? poserCorpus : null," +
+    "doitChercherCorpus: typeof doitChercherCorpus === 'function' ? doitChercherCorpus : null," +
+    "chargerCorpusDistant: typeof chargerCorpusDistant === 'function' ? chargerCorpusDistant : null})");
+  const pC = C.poserCorpus || function () { return { rep: null, grooves: null }; };
+  const dCC = C.doitChercherCorpus || function () { return null; };
+  const etatEl = doc.getElementById("etatRep");
+  const battuesAvant = F.etat.battues;
+  F.etat.battues = 4;
+
+  /* ---- 23.1 La garde de protocole ----------------------------------- */
+  t("le corpus distant se cherche en https", dCC("https:") === true);
+  t("le corpus distant se cherche en http", dCC("http:") === true);
+  t("jamais en file:// — la promesse hors ligne reste vraie", dCC("file:") === false);
+  t("jamais sur un protocole inconnu", dCC("about:") === false);
+  t("et la garde est branchée sur le chargeur",
+    /doitChercherCorpus\(location\.protocol\)/.test(HTML));
+
+  /* ---- 23.2 Hygiène du source : le fetch mort de la note 09 a disparu */
+  t("plus aucun fetch(\"repertoire.json\")", HTML.indexOf('fetch("repertoire.json"') < 0);
+  t("le chargeur vise ../corpus/corpus.json — hors du dossier miroir",
+    HTML.indexOf('fetch("../corpus/corpus.json"') >= 0);
+  t("sans cache", /fetch\("\.\.\/corpus\/corpus\.json",\s*\{cache:"no-store"\}\)/.test(HTML));
+  t("l'init passe par le chargeur unique", /chargerCorpusDistant\(\);/.test(HTML));
+  t("le chargement manuel passe par la même porte",
+    /poserCorpus\(JSON\.parse\(String\(lecteur\.result\)\)/.test(HTML));
+
+  /* ---- 23.3 La porte : clé inconnue refusée, et DITE ---------------- */
+  etatEl.textContent = "";
+  const r0 = pC({version: 2}, "essai");
+  t("un JSON sans clé connue est refusé", r0.rep === false && r0.grooves === null);
+  eq("et le refus est dit",
+    etatEl.textContent, "Fichier illisible : clé « morceaux » ou « grooves » attendue.");
+
+  /* ---- 23.4 Morceaux seuls : la porte du répertoire ----------------- */
+  etatEl.textContent = "";
+  const r1 = pC({morceaux: [
+    { code: "GC-1", titre: "Essai corpus", artiste: "essai", grade: 0, diff: 1,
+      tonalite: "La mineur", tempo: 80, battues: 4, gamme: "mineur",
+      longueur: 2, mesures: "Am7 | D7" }
+  ]}, "essai");
+  t("les morceaux entrent par poserRepertoire", r1.rep === true && r1.grooves === null);
+  eq("le sélecteur répertoire a réappris",
+    doc.querySelectorAll("#repertoire option").length, 2);
+  eq("et l'état le dit", etatEl.textContent, "1 morceau chargé (essai).");
+
+  /* ---- 23.5 Grooves seuls : la porte poserGrooves, le sélecteur suit - */
+  etatEl.textContent = "";
+  const GROOVE_OK = {famille: "essai", id: "es-corpus", label: "Essai corpus",
+    count: 16, metre: "bin", min: 60, max: 120,
+    voix: [{role: "grosse-caisse", timbre: "kick", grid: "X...x...X...x..."}]};
+  const r2 = pC({grooves: [GROOVE_OK]}, "essai");
+  t("le groove entre par la porte", !!r2.grooves &&
+    r2.grooves.pris.length === 1 && r2.grooves.pris[0] === "es-corpus");
+  t("le corpus s'en souvient",
+    BR.GROOVES.some(function (g) { return g.id === "es-corpus"; }));
+  t("le sélecteur de grooves a réappris la liste",
+    !!doc.querySelector('#groove option[value="es-corpus"]'));
+  eq("et l'état le dit", etatEl.textContent, "1 groove chargé (essai).");
+
+  /* ---- 23.6 Le refus est NOMMÉ, jamais avalé ------------------------ */
+  etatEl.textContent = "";
+  const r3 = pC({grooves: [
+    {famille: "essai", id: "es-illisible", label: "Alphabet hors la loi",
+     count: 16, metre: "bin",
+     voix: [{role: "grosse-caisse", timbre: "kick", grid: "Q...x...X...x..."}]}
+  ]}, "essai");
+  t("le groove hors alphabet est refusé", !!r3.grooves && r3.grooves.refus.length === 1);
+  eq("et l'état dit tout, coupable nommé",
+    etatEl.textContent, "0 groove chargé (essai). Refusés : es-illisible.");
+  t("rien n'est entré en douce",
+    !BR.GROOVES.some(function (g) { return g.id === "es-illisible"; }));
+
+  /* ---- 23.7 Mixte : les deux portes dans le même fichier ------------ */
+  etatEl.textContent = "";
+  const r4 = pC({
+    morceaux: [{ code: "GC-2", titre: "Essai mixte", artiste: "essai", grade: 1, diff: 1,
+      tonalite: "La mineur", tempo: 90, battues: 4, gamme: "mineur",
+      longueur: 1, mesures: "Am7" }],
+    grooves: [GROOVE_OK]
+  }, "corpus.json");
+  t("les deux clés entrent ensemble",
+    r4.rep === true && !!r4.grooves && r4.grooves.pris.length === 1);
+  eq("le message additionne",
+    etatEl.textContent, "1 morceau et 1 groove chargés (corpus.json).");
+
+  /* ---- 23.8 Le réseau, simulé en SYNCHRONE -------------------------- */
+  function SV(v, err) { this.v = v; this.err = err; }
+  SV.prototype.then = function (f) {
+    if (this.err !== undefined) return this;
+    try { const r = f(this.v); return (r instanceof SV) ? r : new SV(r); }
+    catch (e) { return new SV(undefined, e); }
+  };
+  SV.prototype.catch = function (f) {
+    if (this.err === undefined) return this;
+    try { const r = f(this.err); return (r instanceof SV) ? r : new SV(r); }
+    catch (e) { return new SV(undefined, e); }
+  };
+  const charger = C.chargerCorpusDistant || function () {};
+  const appels = [];
+  /* dernier appel observé — {} plutôt qu'un crash sur un vieux build */
+  function dernier() { return appels[appels.length - 1] || {}; }
+  function brancherFetch(reponse) {
+    win.fetch = function (url, opts) { appels.push({ url: url, opts: opts }); return reponse; };
+  }
+
+  /* absent — 404, ou 302 Access en client nu : dit, jamais avalé */
+  etatEl.textContent = "";
+  brancherFetch(new SV({ ok: false }));
+  charger();
+  eq("un appel, le bon chemin", dernier().url, "../corpus/corpus.json");
+  eq("sans cache", (dernier().opts || {}).cache, "no-store");
+  eq("l'absence est dite",
+    etatEl.textContent, "Corpus distant absent — chargement manuel possible.");
+
+  /* servi mais illisible */
+  etatEl.textContent = "";
+  brancherFetch(new SV({ ok: true, json: function () { return new SV(undefined, new Error("bad json")); } }));
+  charger();
+  eq("le JSON invalide est dit, distinctement de l'absence",
+    etatEl.textContent, "Corpus distant illisible : JSON invalide.");
+
+  /* le réseau tombe */
+  etatEl.textContent = "";
+  brancherFetch(new SV(undefined, new Error("réseau")));
+  charger();
+  eq("la panne réseau est dite",
+    etatEl.textContent, "Corpus distant absent — chargement manuel possible.");
+
+  /* servi et lisible : tout entre, par les deux portes */
+  etatEl.textContent = "";
+  brancherFetch(new SV({ ok: true, json: function () { return new SV({
+    morceaux: [{ code: "GC-3", titre: "Essai distant", artiste: "essai", grade: 0, diff: 1,
+      tonalite: "La mineur", tempo: 80, battues: 4, gamme: "mineur",
+      longueur: 1, mesures: "Am7" }],
+    grooves: [GROOVE_OK]
+  }); } }));
+  charger();
+  eq("le corpus servi entre par les deux portes",
+    etatEl.textContent, "1 morceau et 1 groove chargés (corpus.json).");
+
+  /* un chargement manuel déjà fait n'est jamais recouvert */
+  etatEl.textContent = "3 morceaux chargés (mien.json).";
+  brancherFetch(new SV({ ok: false }));
+  charger();
+  eq("l'absence ne recouvre pas un chargement manuel",
+    etatEl.textContent, "3 morceaux chargés (mien.json).");
+
+  delete win.fetch;
+
+  /* ---- 23.9 Le corpus privé, s'il est posé, passe la porte ---------- */
+  if (CORPUS_PRIVE && Array.isArray(CORPUS_PRIVE.grooves)) {
+    CORPUS_PRIVE.grooves.forEach(function (g) {
+      t("groove privé accepté par la porte : " + ((g && g.id) || "?"),
+        BR.verifierGroove(g).length === 0);
+    });
+  }
+
+  /* ---- remise en état ----------------------------------------------- */
+  const j = BR.GROOVES.map(function (g) { return g.id; }).indexOf("es-corpus");
+  if (j >= 0) BR.GROOVES.splice(j, 1);
+  eq("le groove d'essai est retiré du corpus", BR.GROOVES.length, 6);
+  F.etat.battues = battuesAvant;
+  pC(REP_UI, "test");
+  BR.majBatterie();
+})();
+
 console.log("\n" + (ok + ko) + " assertions — " + ok + " au vert, " + ko + " au rouge");
 console.log(REP
-  ? "répertoire privé présent : série complète (38 fiches)"
-  : "repertoire.json absent : série répertoire ignorée, moteur validé sans elle");
+  ? (CORPUS_PRIVE ? "corpus.json présent : série répertoire complète (" + REP.morceaux.length + " fiches)"
+                  : "repertoire.json présent : série répertoire complète (" + REP.morceaux.length + " fiches)")
+  : "corpus privé absent (ni corpus.json ni repertoire.json) : série répertoire ignorée, moteur validé sans elle");
 if (ko) {
   console.log("\nÉCHECS :");
   echecs.forEach(function (e) { console.log("  · " + e); });

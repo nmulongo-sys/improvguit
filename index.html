@@ -3522,12 +3522,57 @@ function choisirMorceau(i){
   etat.tonalite = m.tonalite || "";
   rendreManche(); rendreConsigne(); sauver();
 }
-function chargerRepertoireDistant(){
+/* ── Le chargeur unique du corpus privé ─────────────────────────────
+   UN fichier, corpus.json, servi à la racine du SITE (../corpus/) :
+   hors du dossier miroir, qui ne contient que le miroir. Deux clés,
+   deux portes : `morceaux` entre par poserRepertoire(), `grooves` par
+   poserGrooves() — et par nulle part ailleurs ; `grilles` est réservée.
+   Tout ce qui échoue est DIT dans #etatRep, jamais avalé. ── */
+function poserCorpus(data, origine){
+  const etatEl = document.getElementById("etatRep");
+  const aMorceaux = !!(data && Array.isArray(data.morceaux));
+  const aGrooves  = !!(data && Array.isArray(data.grooves));
+  if(!aMorceaux && !aGrooves){
+    if(etatEl) etatEl.textContent = "Fichier illisible : clé « morceaux » ou « grooves » attendue.";
+    return {rep:false, grooves:null};
+  }
+  const rep = aMorceaux ? poserRepertoire(data, origine) : false;
+  const bilan = aGrooves ? poserGrooves(data.grooves) : null;
+  /* le sélecteur n'offre que les grooves compatibles avec la mesure
+     courante : il doit réapprendre la liste après un versement */
+  if(bilan) majBatterie();
+  if(etatEl){
+    const parts = [];
+    if(aMorceaux) parts.push(rep ? repertoire.length + " morceau" + (repertoire.length > 1 ? "x" : "") : "répertoire illisible");
+    if(bilan) parts.push(bilan.pris.length + " groove" + (bilan.pris.length > 1 ? "s" : ""));
+    const total = (rep ? repertoire.length : 0) + (bilan ? bilan.pris.length : 0);
+    let m = parts.join(" et ") + " chargé" + (total > 1 ? "s" : "") + (origine ? " (" + origine + ")" : "") + ".";
+    if(bilan && bilan.refus.length){
+      m += " Refusés : " + bilan.refus.map(function(r){ return r.id; }).join(", ") + ".";
+    }
+    etatEl.textContent = m;
+  }
+  return {rep:rep, grooves:bilan};
+}
+/* La promesse « hors ligne » interdit d'appeler le réseau depuis
+   file:// : le corpus distant n'est cherché que servi en http(s). */
+function doitChercherCorpus(protocole){
+  return protocole === "http:" || protocole === "https:";
+}
+function chargerCorpusDistant(){
   if(typeof fetch !== "function") return;
-  fetch("repertoire.json", {cache:"no-store"})
-    .then(function(r){ return r.ok ? r.json() : null; })
-    .then(function(d){ if(d) poserRepertoire(d, "repertoire.json"); })
-    .catch(function(){});
+  if(typeof location === "undefined" || !doitChercherCorpus(location.protocol)) return;
+  const dire = function(msg){
+    const el = document.getElementById("etatRep");
+    if(el && !el.textContent) el.textContent = msg;
+  };
+  fetch("../corpus/corpus.json", {cache:"no-store"})
+    .then(function(r){
+      if(!r.ok){ dire("Corpus distant absent — chargement manuel possible."); return null; }
+      return r.json().catch(function(){ dire("Corpus distant illisible : JSON invalide."); return null; });
+    })
+    .then(function(d){ if(d) poserCorpus(d, "corpus.json"); })
+    .catch(function(){ dire("Corpus distant absent — chargement manuel possible."); });
 }
 
 /* ============================================================
@@ -3803,7 +3848,7 @@ function brancher(){
     if(!f) return;
     const lecteur = new FileReader();
     lecteur.onload = function(){
-      try{ poserRepertoire(JSON.parse(String(lecteur.result)), f.name); }
+      try{ poserCorpus(JSON.parse(String(lecteur.result)), f.name); }
       catch(err){ document.getElementById("etatRep").textContent = "JSON invalide."; }
     };
     lecteur.readAsText(f);
@@ -3930,7 +3975,7 @@ function init(){
   rendreGrille(); rendreManche(); rendreConsigne();
   peindreTempo(); peindreMinuteur(); majBoutonJouer();
   brancher();
-  chargerRepertoireDistant();
+  chargerCorpusDistant();
 }
 if(typeof document !== "undefined" && document.getElementById("manche")) init();
 
@@ -3948,6 +3993,7 @@ if(typeof module !== "undefined" && module.exports){
                     triadeDeAccord, triadeAtelier, palier, etat, marques,
                     GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEAU_PERCU,
                     battuesGroove, casesParTemps, metreCalcule, verifierGroove, poserGrooves,
+                    poserCorpus, doitChercherCorpus, chargerCorpusDistant,
                     variantesDe, voixVariante, phraseDe, sectionCourante, varianteBase, variantesLegales,
                     tirerVariante, avancerVariante, reinitPercu, varianteCourante,
                     grooveCourant, groovesCompatibles, batterieArmee, batterieMuette,

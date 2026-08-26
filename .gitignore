@@ -2,6 +2,10 @@
 repertoire.json
 *.repertoire.json
 
+# Le corpus privé du chargeur unique non plus (il vit dans portail/corpus/).
+corpus.json
+*.corpus.json
+
 # Validation locale
 node_modules/
 index.v*.html
