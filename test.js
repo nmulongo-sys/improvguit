@@ -2329,7 +2329,7 @@ const BR = win.eval("({GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEA
   " casesDuTemps, planPercu, majBatterie, PROFIL_PUSH, regimeCroche, avancePush," +
   " volumeClic, VOLUME_CLIC, VOLUME_CLIC_BAS, percuPasser, initBruit," +
   " variantesDe, voixVariante, phraseDe, sectionCourante, varianteBase, variantesLegales," +
-  " tirerVariante, avancerVariante, reinitPercu, varianteCourante})");
+  " tirerVariante, avancerVariante, reinitPercu, varianteCourante, CASE_ETAT, PROFIL_ORNEMENT, decalageOrnement, verifierVoix, countVoix, casesParTempsVoix, departGroove, departVoix, GAIN_PERCU})");
 
 (function () {
   const memo = {
@@ -2339,14 +2339,68 @@ const BR = win.eval("({GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEA
 
   /* ---- 20.1 Le schéma, et les six grooves publics ------------------ */
 
-  eq("six grooves publics embarqués", BR.GROOVES.length, 6);
+  eq("neuf grooves publics embarqués", BR.GROOVES.length, 9);
   BR.GROOVES.forEach(function (g) {
     const p = BR.verifierGroove(g);
     t("groove légal : " + g.id + (p.length ? " — " + p.join(" · ") : ""), p.length === 0);
   });
   t("aucun nom d'auteur dans le vocabulaire de grooves",
     !/santos|martinez|pellecuer|dworsky|brundage|fisher|nelson/i.test(JSON.stringify(BR.GROOVES)));
-  eq("l'alphabet imposé compte cinq états", BR.CASES_LEGALES.length, 5);
+  /* ⚑ L'ALPHABET S'EST ÉTENDU (note 31), et c'est le seul endroit du projet
+     où une décision casse la compatibilité DESCENDANTE avec le schéma du
+     métronome. L'assertion ne disparaît donc pas : elle se dédouble.
+     ⭐ La première moitié — le socle intact, dans l'ordre — est celle qui
+     compte. Sans elle, « neuf états » ne dirait pas si les cinq d'origine
+     ont survécu ou si on les a réécrits. */
+  eq("le socle du métronome est intact, et en tête", BR.CASES_LEGALES.slice(0, 5), "Xx-.m");
+  eq("sept états ajoutés, et pas un de plus", BR.CASES_LEGALES.length, 12);
+  eq("les sept ajouts sont n, F, f, D, d, A, a", BR.CASES_LEGALES.slice(5), "nFfDdAa");
+  /* ⭐ LA RÉGULARITÉ, assertée plutôt que promise : chaque ornement existe
+     dans les DEUX forces, la majuscule est l'accent et la minuscule ne
+     l'est pas — la règle de X et x, appliquée telle quelle. Sans cette
+     série, « onze états » serait une liste ; avec elle, c'est un système. */
+  ["flam", "double", "avancee"].forEach(function (o) {
+    const franc = Object.keys(BR.CASE_ETAT).filter(function (c) {
+      return BR.CASE_ETAT[c].orn === o && !BR.CASE_ETAT[c].etouffe;
+    });
+    eq("l'ornement « " + o + " » existe dans les deux forces franches", franc.length, 2);
+    t("l'ornement « " + o + " » : la majuscule accentue, la minuscule non",
+      franc.filter(function (c) { return BR.CASE_ETAT[c].accent; }).join() ===
+      franc.filter(function (c) { return c === c.toUpperCase(); }).join());
+  });
+  /* ⚠️ L'EXCEPTION, assertée comme telle plutôt que passée sous silence :
+     l'étouffé est un registre à part — ni « m » ni « n » n'ont de forme
+     accentuée, et un fantôme accentué ne veut rien dire. */
+  const ETOUFFES = Object.keys(BR.CASE_ETAT).filter(function (c) { return BR.CASE_ETAT[c].etouffe; });
+  eq("l'étouffé compte exactement deux états", ETOUFFES.join(), "m,n");
+  t("aucun étouffé n'est un accent", ETOUFFES.every(function (c) { return !BR.CASE_ETAT[c].accent; }));
+  t("aucun étouffé n'a de majuscule", ETOUFFES.every(function (c) { return c === c.toLowerCase(); }));
+  eq("« n » est le double de « m »", BR.CASE_ETAT.n.orn + "/" + BR.CASE_ETAT.n.force,
+    "double/" + BR.CASE_ETAT.m.force);
+  t("majuscule ⇔ accent, sur tout l'alphabet FRANC",
+    Object.keys(BR.CASE_ETAT).filter(function (c) { return !BR.CASE_ETAT[c].etouffe; })
+      .every(function (c) { return (c === c.toUpperCase()) === BR.CASE_ETAT[c].accent; }));
+  eq("et les accents ont tous la même force", 
+    Object.keys(BR.CASE_ETAT).filter(function (c) { return BR.CASE_ETAT[c].accent; })
+      .map(function (c) { return BR.CASE_ETAT[c].force; }).join(), "1,1,1,1");
+
+  /* ⚑ Le niveau d'ensemble de la batterie a monté (constat d'usage : elle
+     passait sous la nappe). ⭐ Ce qui compte n'est pas la valeur, c'est que
+     les RAPPORTS entre timbres n'aient pas bougé : un gain global déplace
+     le niveau, sept retouches détruiraient l'équilibre. */
+  t("le gain d'ensemble de la batterie est supérieur à 1", BR.GAIN_PERCU > 1);
+  eq("et les rapports entre timbres sont intacts",
+    ["snare", "hat", "clave", "cajon-grave", "cajon-aigu"].map(function (x) {
+      return Math.round(1000 * BR.NIVEAU_PERCU[x] / BR.NIVEAU_PERCU.kick);
+    }).join(), "682,250,455,727,295");
+  /* le socle ne porte AUCUN ornement : c'est ce qui rend l'extension additive */
+  t("aucun des cinq états d'origine ne porte d'ornement",
+    "Xxm".split("").every(function (c) { return BR.CASE_ETAT[c].orn === null; }));
+  t("« - » et « . » ne sont pas des états sonnants",
+    BR.CASE_ETAT["-"] === undefined && BR.CASE_ETAT["."] === undefined);
+  eq("FORCE_CASE reste dérivé de la table, pas saisi deux fois",
+    "Xxm".split("").map(function (c) { return BR.FORCE_CASE[c] === BR.CASE_ETAT[c].force; }).join(),
+    "true,true,true");
 
   /* ⭐ battues au schéma, défaut 4 : les 33 grooves du métronome restent
      valides sans une seule modification. C'est la non-régression, et elle
@@ -2438,30 +2492,47 @@ const BR = win.eval("({GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEA
     const out = [];
     for (let bt = 0; bt < BR.battuesGroove(g); bt++) {
       BR.casesDuTemps(g, bt, densite === undefined ? 3 : densite).forEach(function (c) {
-        out.push({ pos: bt + c.off, timbre: c.timbre, force: c.force, etouffe: c.etouffe });
+        out.push({ pos: bt + c.off, timbre: c.timbre, force: c.force, etouffe: c.etouffe,
+                   pas: c.pas, ms: c.ms || 0, orn: c.orn || null });
       });
     }
     return out;
   }
+  /* ⚑ Une case ne vaut plus une frappe. F, f et d en valent DEUX (la grâce
+     puis l'attaque · les deux attaques du double) ; a en vaut une, mais
+     déplacée. Compter « Xxm » aurait laissé passer un ornement muet — et
+     c'est exactement ce que la mutation nº 3 de la contre-épreuve fabrique. */
+  const FRAPPES_PAR_CASE = { X:1, x:1, m:1, n:2, F:2, f:2, D:2, d:2, A:1, a:1 };
   function frappesEcrites(g) {
     let n = 0;
     g.voix.forEach(function (v) {
-      for (let i = 0; i < v.grid.length; i++) if ("Xxm".indexOf(v.grid.charAt(i)) >= 0) n++;
+      for (let i = 0; i < v.grid.length; i++) n += FRAPPES_PAR_CASE[v.grid.charAt(i)] || 0;
     });
     return n;
   }
   BR.GROOVES.forEach(function (g) {
     const m = mesure(g);
     eq("autant de frappes que la grille en écrit : " + g.id, m.length, frappesEcrites(g));
-    const c = BR.casesParTemps(g);
-    t("les cases tombent pile sur la grille : " + g.id,
-      m.every(function (x) { return Math.abs(x.pos * c - Math.round(x.pos * c)) < 1e-9; }));
+    /* ⭐ Le pas n'est plus celui du groove : il est celui de LA VOIX. Une
+       case tombe pile si sa position est un multiple entier de son propre
+       pas — ou un demi-multiple quand c'est la seconde attaque d'un double,
+       qui est la seule chose au monde autorisée à tomber au milieu. */
+    t("les cases tombent pile sur la grille de LEUR voix : " + g.id,
+      m.every(function (x) {
+        const r = x.pos / x.pas;
+        const f = Math.abs(r - Math.round(r));
+        return f < 1e-9 || (x.orn === "double" && Math.abs(f - 0.5) < 1e-9);
+      }));
     t("aucune case ne déborde de la mesure : " + g.id,
       m.every(function (x) { return x.pos >= 0 && x.pos < BR.battuesGroove(g); }));
+    /* ⚑ La clé porte maintenant le décalage absolu : une grâce de flam
+       partage la POSITION de son attaque et n'en partage pas l'INSTANT.
+       Sans le ms dans la clé, tout groove orné rougirait à tort ; sans la
+       clé du tout, deux vraies frappes superposées passeraient. */
     const vus = {};
     let double = false;
     m.forEach(function (x) {
-      const k = x.timbre + "@" + x.pos.toFixed(6);
+      const k = x.timbre + "@" + x.pos.toFixed(6) + "+" + x.ms;
       if (vus[k]) double = true;
       vus[k] = 1;
     });
@@ -2569,9 +2640,9 @@ const BR = win.eval("({GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEA
     BR.volumeClic("chgt") === BR.VOLUME_CLIC.chgt);
   eq("la valse est proposée pour trois temps",
     BR.groovesCompatibles(3).map(function (g) { return g.id; }).join(), "va-trois");
-  eq("le 6/8 est proposé pour deux temps",
-    BR.groovesCompatibles(2).map(function (g) { return g.id; }).join(), "sh-six-huit");
-  eq("quatre grooves pour quatre temps", BR.groovesCompatibles(4).length, 4);
+  eq("les deux 6/8 sont proposés pour deux temps",
+    BR.groovesCompatibles(2).map(function (g) { return g.id; }).join(), "sh-six-huit,sh-six-huit-poly");
+  eq("six grooves pour quatre temps", BR.groovesCompatibles(4).length, 6);
   eq("aucun groove pour six temps", BR.groovesCompatibles(6).length, 0);
 
   poser("C | G", 3, "va-trois");
@@ -2750,6 +2821,36 @@ const BR = win.eval("({GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEA
         e2.some(function (x) { return x.forme === "sawtooth"; }));
     })();
 
+    /* ⭐ LES ORNEMENTS À TRAVERS L'ORDONNANCEUR, et pas seulement au plan.
+       C'est la seule série qui prouve que le décalage absolu survit au
+       chemin complet — plan → percuPasser → programmation. À 60 bpm le
+       temps dure une seconde et la case du tambour un quart : la grâce
+       doit tomber à 472 ms, la case à 500, et le double couper la sienne
+       en deux à 1500 et 1625. Des chiffres, pas une impression. */
+    (function () {
+      const ev = jouerBatterie("C | G", 2, "sh-six-huit-poly", 60);
+      const ms = ev.map(function (x) { return Math.round(x.t * 1000); });
+      t("le flam sonne 28 ms avant sa case", ms.indexOf(472) >= 0);
+      t("et la case, elle, n'a pas bougé", ms.indexOf(500) >= 0);
+      t("le double tombe sur sa case ET à mi-case",
+        ms.indexOf(1500) >= 0 && ms.indexOf(1625) >= 0);
+      t("le double accentué du tambour grave, lui aussi",
+        ms.indexOf(750) >= 0 && ms.indexOf(875) >= 0);
+      /* ⭐ LE FLAM À DEUX TIMBRES, mesuré au bout de la chaîne : la basse
+         avancée à 972 ms, le ton à 1 000. Vingt-huit millisecondes, deux
+         peaux, aucun coup inventé. */
+      t("le flam à deux timbres : la basse à 972, le ton à 1 000",
+        ms.indexOf(972) >= 0 && ms.indexOf(1000) >= 0);
+      t("aucune frappe ne précède le premier temps",
+        ms.every(function (x) { return x >= 0; }));
+      /* ⚑ LE CONTRÔLE : la cloche, elle, n'a aucun ornement et ne connaît
+         donc aucun décalage absolu. Toutes ses frappes tombent sur des
+         sixièmes ronds. Sans cette assertion, un décalage appliqué à TOUT
+         le monde passerait pour un flam réussi. */
+      t("la cloche ignore les millisecondes : que des sixièmes de temps",
+        ms.filter(function (x) { return x % 1000 === 0 || (x * 6) % 1000 === 0; }).length > 0);
+    })();
+
     /* le shuffle place ses frappes aux tiers, jamais aux quarts */
     e = jouerBatterie("C | G", 4, "sh-shuffle", 60);
     const tiers = e.map(function (x) { return Math.round(x.t * 3000) / 3000; });
@@ -2796,7 +2897,7 @@ const BR = win.eval("({GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEA
     F.etat.batterie = true; F.etat.battues = 4; F.etat.groove = "rk-base";
     BR.majBatterie();
     eq("le select ne propose que les grooves à quatre temps",
-      doc.getElementById("groove").querySelectorAll("option").length, 4);
+      doc.getElementById("groove").querySelectorAll("option").length, 6);
     t("le champ est visible quand la batterie est mise", !doc.getElementById("champBatterie").hidden);
     F.etat.battues = 3; BR.majBatterie();
     eq("à trois temps, un seul groove", doc.getElementById("groove").querySelectorAll("option").length, 1);
@@ -2819,6 +2920,289 @@ const BR = win.eval("({GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEA
     t("les quatre réglages de la batterie sont persistés",
       v.batterie === true && v.groove === "sh-shuffle" &&
       v.grooveDensite === 2 && v.batterieGap === false);
+  })();
+
+  /* ---- 20.8 LA DETTE DE MODÈLE (note 31) -------------------------
+     Trois manques que le corpus portait en remarque au lieu de les rendre :
+     le flam et la double attaque par case, la rotation de début de phrase,
+     et la superposition de deux mailles dans la même mesure.
+     ⭐ Chaque bloc porte SON contrôle — l'assertion qui rougit quand le
+     mécanisme est retiré. Une assertion qui passe des deux côtés ne teste
+     rien, et c'est la leçon de la note 16 §3 qui s'est déjà présentée deux
+     fois (notes 19 §4 et 21 §4).
+     ------------------------------------------------------------------ */
+
+  /* -- A. Les ornements ---------------------------------------------- */
+  (function () {
+    function un(grid, densite) {
+      return mesure({count:4, battues:1, voix:[{role:"e", timbre:"snare", grid:grid}]},
+                    densite === undefined ? 3 : densite);
+    }
+    /* ⚠️ TROISIÈME OCCURRENCE du même défaut (notes 19 §4 et 21 §4) : une
+       lecture d'indice sans garde fait CRASHER le banc au lieu de le faire
+       rougir, et un banc qui crashe cache tous les autres rouges. Constaté
+       ici à la contre-épreuve : deux mutations sur dix-sept ne rendaient
+       aucun rouge, elles tuaient le processus. La garde est écrite une
+       fois, en haut, et toutes les lectures passent par elle. */
+    const VIDE = {pos:NaN, ms:NaN, force:NaN, pas:NaN, orn:"·", timbre:"·"};
+    function nth(a, i) { return (a && a[i]) || VIDE; }
+    /* ⚑ LE CONTRÔLE D'INERTIE, et c'est la plus importante de la série :
+       une grille écrite dans les cinq états d'origine ne doit produire NI
+       décalage NI ornement. Si celle-ci rougit, l'extension n'est pas
+       additive et tout le reste est sans objet. */
+    const socle = un("XxmX");
+    eq("inertie : quatre cases du socle, quatre frappes", socle.length, 4);
+    t("inertie : aucun décalage absolu sur le socle",
+      socle.every(function (c) { return c.ms === 0; }));
+    t("inertie : aucun ornement sur le socle",
+      socle.every(function (c) { return c.orn === null; }));
+
+    /* le flam : deux attaques, une seule case, un seul instant de grille */
+    const fl = un("f...");
+    eq("f : deux frappes pour une case", fl.length, 2);
+    eq("f : les deux à la même position de grille", nth(fl,0).pos, nth(fl,1).pos);
+    t("f : la grâce est en tête et elle est SEULE décalée",
+      nth(fl,0).ms < 0 && nth(fl,1).ms === 0);
+    t("f : la grâce est plus faible que l'attaque qu'elle annonce",
+      nth(fl,0).force < nth(fl,1).force);
+    eq("f : et exactement du rapport déclaré au profil",
+      Math.round(1000 * nth(fl,0).force / nth(fl,1).force) / 1000,
+      Math.round(1000 * BR.PROFIL_ORNEMENT.flamForce) / 1000);
+    eq("f : l'attaque garde la force d'un x", nth(fl,1).force, BR.FORCE_CASE.x);
+    eq("F : l'attaque garde la force d'un X", nth(un("F..."),1).force, BR.FORCE_CASE.X);
+    t("F est un accent, f n'en est pas un",
+      BR.CASE_ETAT.F.accent === true && BR.CASE_ETAT.f.accent === false);
+
+    /* ⭐ le flam NE SUIT PAS le tempo — c'est un geste de main, pas une
+       figure. La même grâce en secondes à 60 et à 160 bpm. */
+    const c = {ms:-BR.PROFIL_ORNEMENT.flamMs, pas:0.25};
+    eq("le flam ne suit pas le tempo (60 bpm)", BR.decalageOrnement(c, 1.0),
+      -BR.PROFIL_ORNEMENT.flamMs / 1000);
+    eq("le flam ne suit pas le tempo (160 bpm)", BR.decalageOrnement(c, 0.375),
+      -BR.PROFIL_ORNEMENT.flamMs / 1000);
+    /* ...mais il ne mange jamais plus de 40 % de sa case : au-delà ce
+       n'est plus un flam, c'est une double croche en retard. */
+    t("le plafond mord quand la case devient trop courte",
+      Math.abs(BR.decalageOrnement(c, 0.2) + 0.4 * 0.25 * 0.2) < 1e-12);
+    t("le plafond ne mord PAS quand la case est large",
+      BR.decalageOrnement(c, 1.0) === -BR.PROFIL_ORNEMENT.flamMs / 1000);
+    eq("une case sans ornement ne décale rien", BR.decalageOrnement({ms:0, pas:0.25}, 1.0), 0);
+
+    /* le double : deux attaques DANS la case — une subdivision, donc elle
+       suit le tempo, donc elle n'a aucune milliseconde à elle */
+    const db = un("d...");
+    eq("d : deux frappes pour une case", db.length, 2);
+    t("d : la seconde tombe au milieu de la case",
+      Math.abs((nth(db,1).pos - nth(db,0).pos) - BR.PROFIL_ORNEMENT.doublePart * nth(db,0).pas) < 1e-12);
+    t("d : aucun décalage absolu — le double suit le tempo",
+      db.every(function (x) { return x.ms === 0; }));
+    t("d : les deux attaques ont la même force", db.length === 2 && nth(db,0).force === nth(db,1).force);
+    /* ⚑ LE CONTRÔLE qui sépare le double du flam : à deux tempos
+       différents, l'écart d'un flam est constant EN SECONDES et l'écart
+       d'un double ne l'est pas. Sans lui, rendre le double par le même
+       mécanisme que le flam passerait inaperçu. */
+    t("flam et double ne réagissent pas au tempo de la même façon",
+      BR.decalageOrnement(c, 1.0) === BR.decalageOrnement(c, 0.5) &&
+      (nth(db,1).pos - nth(db,0).pos) * 1.0 !== (nth(db,1).pos - nth(db,0).pos) * 0.5);
+
+    /* l'avancée : UNE attaque, déplacée. C'est le seul état qui n'invente
+       aucun coup — et c'est lui qui rend le flam à deux timbres. */
+    const av = un("a...");
+    eq("a : une seule frappe, comme un x", av.length, un("x...").length);
+    t("a : mais décalée, contrairement au x", nth(av,0).ms < 0 && nth(un("x..."),0).ms === 0);
+    eq("a : et à la même position de grille que le x", nth(av,0).pos, nth(un("x..."),0).pos);
+
+    /* ⭐ Le flam à DEUX TIMBRES — le « BI » des partitions d'ensemble :
+       la basse en grâce devant le ton. Deux voix, une case, aucun coup
+       inventé : c'est exactement ce que le corpus rendait « même case »
+       avec une remarque avant la note 31. */
+    const bi = mesure({count:4, battues:1, voix:[
+      {role:"grave", timbre:"cajon-grave", grid:"a..."},
+      {role:"aigu",  timbre:"cajon-aigu",  grid:"X..."}]});
+    eq("BI : deux frappes, deux timbres", bi.length, 2);
+    eq("BI : à la même position de grille", nth(bi,0).pos, nth(bi,1).pos);
+    t("BI : et la basse sonne AVANT le ton",
+      nth(bi.filter(function (x) { return x.timbre === "cajon-grave"; }), 0).ms <
+      nth(bi.filter(function (x) { return x.timbre === "cajon-aigu"; }), 0).ms);
+
+    /* la densité 1 est le rendu dégradé — celui d'avant, devenu réglage */
+    eq("densité 1 : F redevient un accent nu", un("F...", 1).length, 1);
+    t("densité 1 : et sans décalage", nth(un("F...", 1),0).ms === 0);
+    eq("densité 1 : f, d et a ne sont pas des accents, ils tombent",
+      un("f...", 1).length + un("d...", 1).length + un("a...", 1).length, 0);
+    /* ...mais D et A en SONT, et survivent — dépouillés de leur ornement */
+    eq("densité 1 : D reste, réduit à une attaque", un("D...", 1).length, 1);
+    eq("densité 1 : A reste, et sans décalage", nth(un("A...", 1), 0).ms, 0);
+    eq("densité 3 : D en vaut deux, comme d", un("D...").length, un("d...").length);
+    eq("densité 3 : A en vaut une, comme a", un("A...").length, un("a...").length);
+    t("D accentue ce que d laisse faible",
+      nth(un("D..."), 0).force > nth(un("d..."), 0).force);
+    t("A accentue ce que a laisse faible",
+      nth(un("A..."), 0).force > nth(un("a..."), 0).force);
+    eq("A garde le même décalage que a", nth(un("A..."), 0).ms, nth(un("a..."), 0).ms);
+
+    /* les gardes : les quatre nouveaux états sont légaux, un cinquième non */
+    t("les sept ajouts passent la garde d'alphabet",
+      BR.verifierGroove({count:7, battues:1,
+        voix:[{role:"e", timbre:"snare", grid:"nFfDdAa"}]}).length === 0);
+    /* « n » : deux fantômes dans la case — le double, au registre étouffé */
+    const nn = un("n...");
+    eq("n : deux frappes pour une case", nn.length, 2);
+    t("n : les deux sont étouffées", nn.every(function (x) { return x.etouffe; }));
+    eq("n : et à la force d'un m", nth(nn, 0).force, BR.FORCE_CASE.m);
+    t("n : la seconde tombe au milieu de la case, comme d",
+      Math.abs((nth(nn,1).pos - nth(nn,0).pos) - BR.PROFIL_ORNEMENT.doublePart * nth(nn,0).pas) < 1e-12);
+    eq("densité 1 : n n'est pas un accent, il tombe", un("n...", 1).length, 0);
+    eq("densité 2 : l'étouffé tombe, n compris", un("n...", 2).length, 0);
+    t("un état inventé est refusé, et il est NOMMÉ",
+      BR.verifierGroove({count:4, battues:1,
+        voix:[{role:"e", timbre:"snare", grid:"Z..."}]})
+        .join(" ").indexOf("hors alphabet") >= 0);
+  })();
+
+  /* -- B. Le départ de phrase ---------------------------------------- */
+  (function () {
+    const trois = BR.GROOVES.filter(function (g) { return g.id === "cl-son-3-2"; })[0];
+    const deux  = BR.GROOVES.filter(function (g) { return g.id === "cl-son-2-3"; })[0];
+    /* ⭐ Tout le propos tient dans ces deux assertions mises côte à côte :
+       les grilles sont RIGOUREUSEMENT identiques, et les mesures ne le
+       sont pas. Un seul champ les sépare. */
+    eq("clave 3-2 et 2-3 : grilles rigoureusement identiques",
+      JSON.stringify(trois.voix), JSON.stringify(deux.voix));
+    t("clave 3-2 et 2-3 : et pourtant deux mesures différentes",
+      JSON.stringify(mesure(trois)) !== JSON.stringify(mesure(deux)));
+    eq("un seul champ les sépare", BR.departGroove(deux) - BR.departGroove(trois), 8);
+
+    /* ⚑ LE CONTRÔLE : sans le champ, elles seraient identiques. Sans cette
+       assertion, la précédente pourrait rougir pour n'importe quelle autre
+       raison et on ne le saurait pas. */
+    const remis = JSON.parse(JSON.stringify(deux)); delete remis.depart;
+    eq("contrôle : depart retiré, les deux mesures redeviennent identiques",
+      JSON.stringify(mesure(remis)), JSON.stringify(mesure(trois)));
+    eq("depart absent vaut depart 0", BR.departGroove(remis), BR.departGroove(trois));
+
+    /* ⚑ LE SENS de la rotation ne s'éprouve QUE sur un départ asymétrique.
+       8 sur 16 se lit pareil dans les deux sens : la clave son, à elle
+       seule, laissait passer une rotation inversée — constaté à la
+       contre-épreuve, mutation nº 2, zéro rouge. C'est mot pour mot ce que
+       la note 21 §5 avait relevé pour `interdits`, et c'est revenu. */
+    const asym = {count:8, battues:2, depart:3,
+                  voix:[{role:"e", timbre:"kick", grid:"X......."}]};
+    eq("le sens de la rotation : depart 3 porte la frappe à 1,25 temps",
+      mesure(asym).map(function (x) { return x.pos; }).join(), "1.25");
+
+    /* la rotation est une VRAIE rotation : la mesure de 2-3, c'est celle
+       de 3-2 décalée de deux temps, à la clave près du bouclage */
+    function claveA(g) {
+      return mesure(g).filter(function (x) { return x.timbre === "clave"; })
+        .map(function (x) { return x.pos; }).sort(function (a, b) { return a - b; });
+    }
+    const B = BR.battuesGroove(trois);
+    const attendu = claveA(trois).map(function (x) { return (x + B - 2) % B; })
+      .sort(function (a, b) { return a - b; });
+    eq("2-3 est bien 3-2 tournée de deux temps", claveA(deux).join(), attendu.join());
+    /* la voix régulière, elle, ne bouge pas — une rotation qui la ferait
+       bouger serait un décalage, pas un départ */
+    function grave(g) {
+      return mesure(g).filter(function (x) { return x.timbre === "cajon-grave"; })
+        .map(function (x) { return x.pos; }).join();
+    }
+    eq("la voix régulière ne bouge pas sous la rotation", grave(deux), grave(trois));
+
+    /* les gardes */
+    t("depart non entier refusé",
+      BR.verifierGroove({count:8, battues:2, depart:1.5,
+        voix:[{role:"e", timbre:"kick", grid:"X...X..."}]}).length > 0);
+    t("depart hors de la grille refusé",
+      BR.verifierGroove({count:8, battues:2, depart:8,
+        voix:[{role:"e", timbre:"kick", grid:"X...X..."}]}).length > 0);
+    t("depart négatif refusé",
+      BR.verifierGroove({count:8, battues:2, depart:-1,
+        voix:[{role:"e", timbre:"kick", grid:"X...X..."}]}).length > 0);
+    /* ⚑ et le cas qui n'existe que depuis le count par voix : une rotation
+       qui ne tombe pas juste sur une voix la décalerait CONTRE les autres.
+       Refusée, jamais arrondie. */
+    t("une rotation qui ne tombe pas juste sur une voix est refusée",
+      BR.verifierGroove({count:12, battues:2, depart:1,
+        voix:[{role:"a", timbre:"clave", grid:"X..x.xX..x.x"},
+              {role:"b", timbre:"kick", count:8, grid:"X...X..."}]})
+        .join(" ").indexOf("ne tombe pas juste") >= 0);
+    t("et la même rotation, prise juste, passe",
+      BR.verifierGroove({count:12, battues:2, depart:3,
+        voix:[{role:"a", timbre:"clave", grid:"X..x.xX..x.x"},
+              {role:"b", timbre:"kick", count:8, grid:"X...X..."}]}).length === 0);
+  })();
+
+  /* -- C. Deux mailles dans la même mesure --------------------------- */
+  (function () {
+    const g = BR.GROOVES.filter(function (x) { return x.id === "sh-six-huit-poly"; })[0];
+    const cloche = g.voix[0], grave = g.voix[1];
+    eq("la cloche garde la maille du groove", BR.countVoix(g, cloche), 12);
+    eq("les tambours portent la leur", BR.countVoix(g, grave), 8);
+    eq("six cases par temps à la cloche", BR.casesParTempsVoix(g, cloche), 6);
+    eq("quatre cases par temps aux tambours", BR.casesParTempsVoix(g, grave), 4);
+    /* ⭐ Trois contre deux DANS LE MÊME TEMPS : la cloche tombe sur des
+       sixièmes, les tambours sur des quarts, et hors du temps lui-même les
+       deux jeux ne se rencontrent jamais. C'est la définition d'une
+       polyrythmie, et elle n'était pas exprimable avant la note 31. */
+    function offs(timbre) {
+      const s = {};
+      mesure(g).forEach(function (x) {
+        if (x.timbre === timbre) s[(x.pos - Math.floor(x.pos)).toFixed(4)] = 1;
+      });
+      return Object.keys(s).sort();
+    }
+    t("la cloche ne tombe que sur des sixièmes de temps",
+      offs("clave").every(function (o) {
+        return Math.abs(Number(o) * 6 - Math.round(Number(o) * 6)) < 1e-3;
+      }));
+    /* ⚠️ Les tambours tombent sur des quarts — SAUF la seconde attaque du
+       double, qui coupe sa case en deux et tombe donc sur un huitième. Ce
+       n'est pas une exception au modèle, c'est le modèle : un double EST
+       une subdivision. L'assertion porte donc sur les huitièmes, et une
+       seconde dit que seul le double y descend. */
+    t("les tambours ne tombent que sur des huitièmes de temps",
+      offs("cajon-grave").concat(offs("cajon-aigu")).every(function (o) {
+        return Math.abs(Number(o) * 8 - Math.round(Number(o) * 8)) < 1e-3;
+      }));
+    t("et hors double, ils tombent pile sur les quarts",
+      mesure(g).filter(function (x) {
+        return x.timbre.indexOf("cajon") === 0 && x.orn !== "double";
+      }).every(function (x) {
+        const o = x.pos - Math.floor(x.pos);
+        return Math.abs(o * 4 - Math.round(o * 4)) < 1e-3;
+      }));
+    t("et la cloche sort des quarts — sinon il n'y aurait pas polyrythmie",
+      offs("clave").some(function (o) {
+        return Math.abs(Number(o) * 4 - Math.round(Number(o) * 4)) > 1e-3;
+      }));
+
+    /* ⚑ LE CONTRÔLE : une voix qui ne déclare rien hérite du groove. C'est
+       la non-régression des six patrons d'origine, dite au chiffre. */
+    BR.GROOVES.slice(0, 6).forEach(function (x) {
+      t("non-régression de maille : " + x.id,
+        x.voix.every(function (v) {
+          return v.count === undefined && BR.countVoix(x, v) === x.count;
+        }));
+    });
+
+    /* les gardes */
+    t("un count de voix qui ne divise pas les temps est refusé",
+      BR.verifierGroove({count:8, battues:4,
+        voix:[{role:"a", timbre:"kick", grid:"X.X.X.X."},
+              {role:"b", timbre:"hat", count:6, grid:"x.x.x."}]})
+        .join(" ").indexOf("division non entière") >= 0);
+    t("une grille qui ment sur son propre count est refusée",
+      BR.verifierGroove({count:8, battues:2,
+        voix:[{role:"b", timbre:"hat", count:4, grid:"x.x.x."}]})
+        .join(" ").indexOf("cases pour count 4") >= 0);
+    t("un count de voix non entier est refusé",
+      BR.verifierGroove({count:8, battues:2,
+        voix:[{role:"b", timbre:"hat", count:4.5, grid:"x.x.x..."}]}).length > 0);
+    /* ⭐ metre reste décidé par la grille de RÉFÉRENCE : une voix de
+       garniture ne renverse pas le régime de croche du morceau. */
+    eq("le metre reste celui de la grille de référence", BR.metreCalcule(g), "tern");
+    t("et le groove polyrythmique est légal", BR.verifierGroove(g).length === 0);
   })();
 
   /* --- remise en état ---------------------------------------------- */
@@ -2895,7 +3279,7 @@ const BR = win.eval("({GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEA
     const nus   = BR.GROOVES.filter(function (g) { return g.variantes === undefined; });
     eq("deux patrons publics portent des variantes", dotes.length, 2);
     eq("et ce sont les deux rocks", dotes.map(function (g) { return g.id; }).sort().join(), "rk-base,rk-croches");
-    eq("les quatre autres restent nus", nus.length, 4);
+    eq("les sept autres restent nus", nus.length, 7);
     nus.forEach(function (g) {
       t("non-régression : " + g.id + " ne déclare ni variantes ni interdits",
         g.variantes === undefined && g.interdits === undefined);
@@ -3279,7 +3663,7 @@ const BR = win.eval("({GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEA
     /* ⚠️ le groove d'essai ne doit pas rester dans le corpus public */
     const i = BR.GROOVES.map(function (x) { return x.id; }).indexOf("es-ordo");
     if (i >= 0) BR.GROOVES.splice(i, 1);
-    eq("le groove d'essai est retiré du corpus", BR.GROOVES.length, 6);
+    eq("le groove d'essai est retiré du corpus", BR.GROOVES.length, 9);
   })();
 
   /* ==================================================================
@@ -3784,7 +4168,7 @@ const BR = win.eval("({GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEA
   /* ---- remise en état ----------------------------------------------- */
   const j = BR.GROOVES.map(function (g) { return g.id; }).indexOf("es-corpus");
   if (j >= 0) BR.GROOVES.splice(j, 1);
-  eq("le groove d'essai est retiré du corpus", BR.GROOVES.length, 6);
+  eq("le groove d'essai est retiré du corpus", BR.GROOVES.length, 9);
   F.etat.battues = battuesAvant;
   pC(REP_UI, "test");
   BR.majBatterie();

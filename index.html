@@ -1572,12 +1572,91 @@ function bourdon(t, pc, duree){
    répertoire. Les six patrons ci-dessous sont de bien commun.
    ------------------------------------------------------------ */
 
-/* Alphabet imposé par le schéma du métronome (note 01) — cinq états,
-   pas quatre : X accent · x attaque · - tenue · . vide · m étouffé.
+/* Alphabet des cases. Le socle vient du schéma du métronome (note 01) —
+   cinq états : X accent · x attaque · - tenue · . vide · m étouffé.
    ⚠️ « - » ne produit AUCUNE attaque : une percussion ne tient pas une
-   case, elle en occupe la durée. Il est légal, il ne sonne pas. */
-const CASES_LEGALES = "Xx-.m";
-const FORCE_CASE = {X:1, x:0.55, m:0.3};
+   case, elle en occupe la durée. Il est légal, il ne sonne pas.
+
+   ⚑ SEPT ÉTATS S'AJOUTENT (note 31), et c'est une rupture assumée :
+   le schéma du métronome n'en connaît que cinq. L'extension est STRICTEMENT
+   ADDITIVE — tout groove écrit avec les cinq états d'origine se lit, se
+   vérifie et sonne exactement comme avant, et le banc l'asserte grille par
+   grille. La réciproque est fausse : un groove qui use des quatre nouveaux
+   états serait refusé par le métronome. C'est le prix, il est écrit ici et
+   pas ailleurs.
+   ⭐ ET ILS SUIVENT LA RÈGLE DÉJÀ EN VIGUEUR : majuscule = accent,
+   minuscule = attaque faible — exactement ce que X et x disent depuis le
+   premier jour. Il n'y a donc rien de neuf à retenir, et la régularité
+   s'asserte en une ligne : les trois ornements existent dans les DEUX
+   forces, et aucun autre.
+     F · f  flam     — une grâce du même timbre, puis l'attaque
+     D · d  double   — DEUX attaques dans la case (Dworsky 7-6 : « deux
+                       touches », mains L-R). ⚠️ Ce n'est pas un ornement,
+                       c'est une subdivision : elle suit le tempo.
+     A · a  avancée  — l'attaque de la case est jouée en grâce, décalée
+                       avant, SANS attaque ajoutée. Ce sont les seuls états
+                       qui rendent le flam à DEUX TIMBRES (Magic Drums
+                       « BI » : basse en grâce devant le ton) sans inventer
+                       un coup — et la majuscule garde à la basse son poids,
+                       ce que la seule minuscule lui retirait.
+     n      double étouffé — DEUX fantômes dans la case (Dworsky 7-6 :
+                       « deux touches », mains L-R). ⚠️ C'EST L'EXCEPTION À LA
+                       RÈGLE, et il vaut mieux la nommer que la cacher : un
+                       fantôme n'a pas de forme accentuée — « m » n'en a pas
+                       non plus, et pour la même raison. La régularité porte
+                       sur les trois ornements de l'attaque franche ; l'étouffé
+                       est un registre à part, il l'était déjà.
+   ⭐ Ce qui a fait pencher : sans « n », la leçon 7-6 de Dworsky restait
+   écartée du corpus — et son écartement n'aurait plus eu de raison valable,
+   seulement une raison périmée. Un état pour une occurrence se paie quand
+   c'est le dernier verrou.
+
+   ⭐ La distinction qui structure tout le reste : un flam ne suit pas le
+   tempo, un double si. Une grâce de flam est un geste de main — 25 à 35 ms
+   chez tous les auteurs, à 60 comme à 160 bpm. Un double est une figure
+   rythmique : il se serre quand la mesure se serre. Les rendre par le même
+   mécanisme aurait été faux dans un sens ou dans l'autre. */
+const CASE_ETAT = {
+  X:{force:1,    etouffe:false, accent:true,  orn:null},
+  x:{force:0.55, etouffe:false, accent:false, orn:null},
+  m:{force:0.3,  etouffe:true,  accent:false, orn:null},
+  F:{force:1,    etouffe:false, accent:true,  orn:"flam"},
+  f:{force:0.55, etouffe:false, accent:false, orn:"flam"},
+  D:{force:1,    etouffe:false, accent:true,  orn:"double"},
+  d:{force:0.55, etouffe:false, accent:false, orn:"double"},
+  A:{force:1,    etouffe:false, accent:true,  orn:"avancee"},
+  a:{force:0.55, etouffe:false, accent:false, orn:"avancee"},
+  n:{force:0.3,  etouffe:true,  accent:false, orn:"double"}
+};
+const CASES_LEGALES = "Xx-.mnFfDdAa";
+/* ⚑ FORCE_CASE est DÉRIVÉ, jamais saisi deux fois — c'est le défaut que
+   RHO_RANGS documente, et il se serait glissé ici sans qu'on le voie. */
+const FORCE_CASE = (function(){
+  const o = {};
+  Object.keys(CASE_ETAT).forEach(function(k){ o[k] = CASE_ETAT[k].force; });
+  return o;
+})();
+
+/* Le profil de restitution des ornements — même nature que PROFIL_PUSH :
+   le OÙ est dans la grille, le COMBIEN est un profil. Un seul endroit. */
+const PROFIL_ORNEMENT = {
+  flamMs:    28,   /* la grâce, en millisecondes ABSOLUES */
+  flamPart:  0.4,  /* ...plafonnée à 40 % de la case : au-delà ce n'est plus
+                      un flam, c'est une double croche en retard */
+  flamForce: 0.45, /* la grâce est plus faible que l'attaque qu'elle annonce */
+  doublePart: 0.5  /* le double tombe au milieu de la case, et suit le tempo */
+};
+/* Le décalage RÉEL d'une case ornée, en secondes. Pur, et c'est pour ça
+   qu'il est sorti de percuPasser : le plafond de 40 % ne se vérifie pas à
+   l'oreille. `pas` est la largeur de la case en fraction de temps — porté
+   par le plan, parce qu'avec un count par voix il n'est plus le même pour
+   toutes les voix du même groove. */
+function decalageOrnement(c, parTemps){
+  const ms = (c && c.ms) || 0;
+  if(!ms) return 0;
+  const plafond = PROFIL_ORNEMENT.flamPart * ((c.pas || 1) * (parTemps || 0));
+  return Math.max(ms / 1000, -plafond);
+}
 
 /* Les voix d'appui portent la pulsation ; le reste est garniture.
    C'est cette table, et elle seule, que lit le curseur de densité —
@@ -1602,6 +1681,49 @@ function metreCalcule(g){
   return (c > 0 && c % 3 === 0) ? "tern" : "bin";
 }
 
+/* ⚑ UNE VOIX PEUT PORTER SA PROPRE LONGUEUR DE GRILLE (note 31). C'est ce
+   qui rend la superposition cloche 6/8 + tambour : une cloche en 12 cases
+   sur des tambours en 8, dans la MÊME mesure, fait trois contre deux par
+   temps. Sans ça, l'ensemble ouest-africain n'était modélisable qu'en
+   grooves séparés, c'est-à-dire pas modélisable du tout.
+   ⚠️ La seule exigence est que la voix se divise par `battues` : une voix
+   qui ne tombe pas sur les temps n'est pas une polyrythmie, c'est une
+   erreur de saisie. Elle est REFUSÉE, jamais arrondie.
+   ⭐ `count` du groove reste la GRILLE DE RÉFÉRENCE : c'est elle, et elle
+   seule, qui décide `metre` et donc le régime de croche. Laisser une voix
+   de garniture renverser le régime harmonique aurait été un second
+   dépositaire de plus. */
+function countVoix(g, v){
+  if(v && v.count > 0) return v.count | 0;
+  return (g && g.count > 0) ? (g.count | 0) : 0;
+}
+function casesParTempsVoix(g, v){
+  const b = battuesGroove(g), n = countVoix(g, v);
+  return (n > 0 && b > 0) ? n / b : 0;
+}
+
+/* ⚑ LE DÉPART DE PHRASE (note 31). Les partitions d'ensemble marquent d'un
+   ↑ la case qui tombe sur le premier temps, et ce n'est presque jamais la
+   première case écrite. Le relevé garde donc la grille TELLE QUE LA SOURCE
+   L'ÉCRIT — on peut la reconfronter à la page — et le moteur fait tourner
+   l'index d'une ligne. Une seule vérité, et les variantes en héritent sans
+   qu'on écrive quoi que ce soit.
+   ⚠️ `depart` est compté en cases de la grille de RÉFÉRENCE. Sur une voix
+   qui porte son propre count, il se convertit au prorata — et s'il n'y
+   tombe pas juste, le groove est refusé. Une rotation arrondie décalerait
+   une voix contre les autres, ce qui est exactement le défaut qu'on vient
+   de corriger. */
+function departGroove(g){
+  const d = (g && g.depart) ? (g.depart | 0) : 0;
+  const n = (g && g.count > 0) ? (g.count | 0) : 0;
+  return (n > 0) ? ((d % n) + n) % n : 0;
+}
+function departVoix(g, v){
+  const r = (g && g.count > 0) ? (g.count | 0) : 0, n = countVoix(g, v);
+  if(!(r > 0 && n > 0)) return 0;
+  return departGroove(g) * n / r;
+}
+
 /* Vérification d'un groove : rend la LISTE des reproches, vide si le
    groove est légal. Un booléen ne dirait pas ce qui cloche, et c'est
    ce que le banc doit pouvoir nommer. */
@@ -1609,13 +1731,27 @@ function metreCalcule(g){
    variante porte son PROPRE jeu complet (note 01) : la même exigence
    doit s'appliquer aux deux, et une exigence écrite deux fois finit
    toujours par diverger — c'est ce que RHO_RANGS documente. */
-function verifierVoix(voix, count, prefixe, p){
+function verifierVoix(voix, g, prefixe, p){
   if(!Array.isArray(voix) || !voix.length){ p.push(prefixe + "aucune voix"); return; }
+  const b = battuesGroove(g);
+  const ref = (g && g.count > 0) ? (g.count | 0) : 0;
   voix.forEach(function(v, k){
     const nom = prefixe + "voix " + k + " (" + (v && v.role ? v.role : "?") + ")";
     if(!v || typeof v.grid !== "string"){ p.push(nom + " : pas de grille"); return; }
-    if(v.grid.length !== count)
-      p.push(nom + " : " + v.grid.length + " cases pour count " + count);
+    /* Le count PROPRE d'une voix : déclaré ou hérité. Ce qui est déclaré est
+       gardé — un count de voix fantaisiste ferait une polyrythmie muette. */
+    if(v.count !== undefined && !(v.count === (v.count | 0) && v.count > 0))
+      p.push(nom + " : count de voix doit être un entier ≥ 1");
+    const n = countVoix(g, v);
+    if(n > 0 && b > 0 && n % b !== 0)
+      p.push(nom + " : division non entière — count de voix " + n + " sur " + b + " temps");
+    if(v.grid.length !== n)
+      p.push(nom + " : " + v.grid.length + " cases pour count " + n);
+    /* La rotation doit tomber juste sur CETTE voix, sinon elle la décale
+       contre les autres — le défaut même qu'on venait corriger. */
+    const dv = departVoix(g, v);
+    if(ref > 0 && dv !== (dv | 0))
+      p.push(nom + " : depart " + departGroove(g) + " ne tombe pas juste (count " + n + " contre référence " + ref + ")");
     const vus = {};
     for(let i=0;i<v.grid.length;i++){
       const c = v.grid.charAt(i);
@@ -1650,7 +1786,7 @@ function verifierVariantes(g, p){
     if(v.poids !== undefined && !(v.poids > 0)) p.push(nom + " : poids nul ou négatif");
     if(v.type !== undefined && !TYPES_VARIANTE[v.type]) p.push(nom + " : type inconnu « " + v.type + " »");
     if(v.section !== undefined && typeof v.section !== "string") p.push(nom + " : section n'est pas une chaîne");
-    verifierVoix(v.voix, g.count, nom + " · ", p);
+    verifierVoix(v.voix, g, nom + " · ", p);
   });
   if(g.interdits !== undefined){
     if(!g.interdits || typeof g.interdits !== "object" || Array.isArray(g.interdits)){
@@ -1676,7 +1812,13 @@ function verifierGroove(g){
   if(!(b > 0)) p.push("battues nulles");
   if(g.count > 0 && b > 0 && g.count % b !== 0)
     p.push("division non entière : count " + g.count + " sur " + b + " temps");
-  verifierVoix(g.voix, g.count, "", p);
+  if(g.depart !== undefined){
+    if(!(g.depart === (g.depart | 0) && g.depart >= 0))
+      p.push("depart doit être un entier ≥ 0");
+    else if(g.count > 0 && g.depart >= g.count)
+      p.push("depart " + g.depart + " hors de la grille (count " + g.count + ")");
+  }
+  verifierVoix(g.voix, g, "", p);
   verifierVariantes(g, p);
   /* ⚑ metre est un SECOND dépositaire de la même vérité — le défaut que
      RHO_RANGS documente. On le garde pour la lisibilité humaine, et on
@@ -1803,7 +1945,43 @@ const GROOVES = [
    count:12, battues:2, metre:"tern", min:50, max:110, jam:76,
    voix:[{role:"cajón grave",  timbre:"cajon-grave", grid:"X.....X....."},
          {role:"cajón aigu",   timbre:"cajon-aigu",  grid:"..x.x...x.x."},
-         {role:"cloche",        timbre:"clave",       grid:"X..x.xX..x.x"}]}
+         {role:"cloche",        timbre:"clave",       grid:"X..x.xX..x.x"}]},
+
+  /* ⚑ LES TROIS PATRONS DE LA NOTE 31. Ils ne sont pas du décor : sans eux
+     les trois mécanismes seraient MUETS dans le dépôt public, exactement
+     comme `interdits` l'était avant que rk-base ne porte sa table (note 21
+     §6). Les six patrons d'origine, eux, n'ont pas bougé d'un caractère —
+     et le banc l'asserte grille par grille.
+
+     ⭐ La clave son est le seul cas où DEUX entrées valent mieux qu'une :
+     `depart` ne s'entend qu'en comparaison. Les deux grooves portent des
+     grilles RIGOUREUSEMENT IDENTIQUES — un seul champ les sépare, et c'est
+     tout le propos. La clave son 3-2/2-3 est imprimée dans toutes les
+     méthodes depuis un siècle ; ce n'est pas un relevé. */
+  {famille:"afro-cubain", id:"cl-son-3-2", label:"Clave son 3-2",
+   count:16, battues:4, metre:"bin", min:70, max:200, jam:120,
+   voix:[{role:"clave",        timbre:"clave",       grid:"X..X..X...X.X..."},
+         {role:"cajón grave",  timbre:"cajon-grave", grid:"X...X...X...X..."}]},
+  {famille:"afro-cubain", id:"cl-son-2-3", label:"Clave son 2-3",
+   count:16, battues:4, metre:"bin", min:70, max:200, jam:120,
+   /* le SEUL écart avec le groove précédent : la mesure qui tombe la première */
+   depart:8,
+   voix:[{role:"clave",        timbre:"clave",       grid:"X..X..X...X.X..."},
+         {role:"cajón grave",  timbre:"cajon-grave", grid:"X...X...X...X..."}]},
+
+  /* ⭐ La cloche garde la maille du 6/8 (six cases par temps, ternaire) ;
+     les tambours prennent la leur (quatre cases par temps, binaire). Trois
+     contre deux dans le même temps, ce qui était strictement impossible
+     tant qu'un groove n'avait qu'un `count`. Le flam et le double sont sur
+     le tambour aigu, là où tous les auteurs les mettent. */
+  {famille:"six-huit", id:"sh-six-huit-poly", label:"6/8 — cloche et tambours",
+   count:12, battues:2, metre:"tern", min:50, max:110, jam:72,
+   voix:[{role:"cloche",       timbre:"clave",       grid:"X..x.xX..x.x"},
+         /* ⭐ Le « A » du tambour grave et le « X » du tambour aigu tombent
+            sur la MÊME case : c'est le flam à deux timbres, la basse en
+            grâce devant le ton, sans qu'un troisième coup soit inventé. */
+         {role:"cajón grave",  timbre:"cajon-grave", count:8, grid:"X..DA..."},
+         {role:"cajón aigu",   timbre:"cajon-aigu",  count:8, grid:"..f.X.d."}]}
 ];
 
 /* Le corpus privé entre par ici, et par nulle part ailleurs : mêmes
@@ -1856,6 +2034,15 @@ const NIVEAU_PERCU = {
   kick:0.22, snare:0.15, hat:0.055, "hat-ouvert":0.05,
   clave:0.10, "cajon-grave":0.16, "cajon-aigu":0.065
 };
+/* ⚑ Le niveau d'ENSEMBLE de la section rythmique, en un seul endroit.
+   Constat d'usage : la boîte à rythmes passait trop bas sous la nappe et
+   la démo — la garniture surtout (charleston à 0,055, et 0,030 une fois
+   la force d'une attaque faible appliquée) disparaissait sous le reste.
+   ⭐ C'est un GAIN GLOBAL, pas sept retouches : la table ci-dessus est un
+   équilibre entre timbres, réglé au timbre près ; le retoucher voix par
+   voix pour un problème de niveau d'ensemble le détruirait. Le banc
+   asserte que les RAPPORTS entre timbres ne bougent pas. */
+const GAIN_PERCU = 1.45;
 /* ⭐ La descente de hauteur EST le coup de batte. Sans elle on entend
    une note de basse, pas une grosse caisse. */
 function tKick(t, n, etouffe){
@@ -1918,7 +2105,7 @@ function percu(t, timbre, force, etouffe){
   const f = TIMBRES[timbre];
   if(!f || !ctx || !maitre) return;
   if(!bruit) initBruit();   /* contexte posé ailleurs qu'en initAudio */
-  f(t, (NIVEAU_PERCU[timbre] || 0.1) * (force || 1), !!etouffe);
+  f(t, (NIVEAU_PERCU[timbre] || 0.1) * GAIN_PERCU * (force || 1), !!etouffe);
 }
 
 /* ── Ce que la batterie joue, et quand ─────────────────────────── */
@@ -1961,26 +2148,54 @@ function batterieJoue(){ return batterieArmee() && !batterieMuette(); }
    horloge : c'est cette fonction que le banc éprouve. */
 function casesDuTemps(g, bt, densite, voix){
   const out = [];
-  const c = casesParTemps(g);
   /* ⚑ Le jeu de voix est un ARGUMENT, et son défaut est celui du groove.
      C'est ce qui fait que les variantes n'ont demandé aucune ligne ici :
      une variante, c'est le même calcul sur d'autres grilles. */
   const jeu = Array.isArray(voix) ? voix : (g ? g.voix : null);
-  if(!g || !Array.isArray(jeu) || !(c > 0)) return out;
+  if(!g || !Array.isArray(jeu) || !(casesParTemps(g) > 0)) return out;
   if(bt < 0 || bt >= battuesGroove(g)) return out;
   const d = Math.max(1, Math.min(3, densite | 0 || 3));
   jeu.forEach(function(v){
-    if(typeof v.grid !== "string" || v.grid.length !== g.count) return;
+    /* ⭐ Chaque voix a désormais SA maille. Le reste du calcul n'a pas
+       changé : c'est toujours « la case k du temps bt », simplement k ne
+       court plus sur la même longueur d'une voix à l'autre. */
+    const n = countVoix(g, v), c = casesParTempsVoix(g, v), dep = departVoix(g, v);
+    if(typeof v.grid !== "string" || v.grid.length !== n) return;
+    if(!(c > 0) || c !== (c | 0) || dep !== (dep | 0)) return;
     const appui = !!APPUI[v.timbre];
     if(d === 1 && !appui) return;
     for(let k=0;k<c;k++){
-      const ch = v.grid.charAt(bt * c + k);
-      if(ch !== "X" && ch !== "x" && ch !== "m") continue;
-      if(d === 1 && ch !== "X") continue;
-      if(d === 2 && ch === "m") continue;
+      const ch = v.grid.charAt((bt * c + k + dep) % n);
+      const e = CASE_ETAT[ch];
+      if(!e) continue;                       /* « . » et « - » ne sonnent pas */
+      /* ⚑ Densité 1, le squelette : les accents seuls, ET SANS ORNEMENT.
+         Un flam est de la garniture. Le retirer ici rend exactement le
+         rendu dégradé que le corpus portait en remarque avant la note 31 :
+         la dégradation n'a pas disparu, elle est devenue un RÉGLAGE. */
+      if(d === 1 && !e.accent) continue;
+      if(d === 2 && e.etouffe) continue;
       if(d === 2 && !appui && k !== 0) continue;
-      out.push({timbre:v.timbre, role:v.role, off:k / c,
-                force:FORCE_CASE[ch], etouffe:ch === "m"});
+      const pas = 1 / c, off = k / c;
+      const orn = (d === 1) ? null : e.orn;
+      /* Le flam : la grâce d'abord, plus faible, décalée en MILLISECONDES
+         (elle ne suit pas le tempo) ; l'attaque ensuite, à sa place. */
+      if(orn === "flam")
+        out.push({timbre:v.timbre, role:v.role, off:off, pas:pas,
+                  force:e.force * PROFIL_ORNEMENT.flamForce, etouffe:e.etouffe,
+                  ms:-PROFIL_ORNEMENT.flamMs, orn:"grace"});
+      /* Le double : DEUX attaques dans la case, la seconde à sa moitié.
+         Aucune milliseconde ici — c'est une subdivision, elle suit le tempo. */
+      if(orn === "double"){
+        out.push({timbre:v.timbre, role:v.role, off:off, pas:pas,
+                  force:e.force, etouffe:e.etouffe, ms:0, orn:"double"});
+        out.push({timbre:v.timbre, role:v.role, off:off + PROFIL_ORNEMENT.doublePart * pas,
+                  pas:pas, force:e.force, etouffe:e.etouffe, ms:0, orn:"double"});
+        continue;
+      }
+      out.push({timbre:v.timbre, role:v.role, off:off, pas:pas,
+                force:e.force, etouffe:e.etouffe,
+                ms:(orn === "avancee") ? -PROFIL_ORNEMENT.flamMs : 0,
+                orn:(orn === "avancee") ? "avancee" : null});
     }
   });
   return out;
@@ -2150,7 +2365,11 @@ function planPercu(i){
 function percuPasser(t, i, parTemps){
   if(!ctx || !maitre) return;
   planPercu(i).forEach(function(c){
-    percu(t + c.off * parTemps, c.timbre, c.force, c.etouffe);
+    /* ⚑ Deux décalages de natures différentes, et c'est voulu : `off` est
+       une fraction de temps (il suit le tempo), `decalageOrnement` est des
+       secondes (il ne le suit pas). Les additionner ici est le seul endroit
+       du moteur où les deux se rencontrent. */
+    percu(t + c.off * parTemps + decalageOrnement(c, parTemps), c.timbre, c.force, c.etouffe);
   });
 }
 
@@ -3991,7 +4210,7 @@ if(typeof module !== "undefined" && module.exports){
                     coachEffacer, coachTop, majCoach, coach, resoudreCible, distanceChangement, positionsChemin,
                     TRIADES, JEUX, RENVERSEMENTS, PALIERS, formeTriade, harmoniserGamme, nashville,
                     triadeDeAccord, triadeAtelier, palier, etat, marques,
-                    GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEAU_PERCU,
+                    GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEAU_PERCU, GAIN_PERCU,
                     battuesGroove, casesParTemps, metreCalcule, verifierGroove, poserGrooves,
                     poserCorpus, doitChercherCorpus, chargerCorpusDistant,
                     variantesDe, voixVariante, phraseDe, sectionCourante, varianteBase, variantesLegales,
