@@ -177,7 +177,7 @@ npm test
 
 `test.js` charge `index.html` dans un DOM et le pilote comme un utilisateur. Couverture : parseur et plafond d'emplacements aux quatre métriques, token de prolongation et identité par référence, tenue par-dessus la barre, ligne de temps et durées d'accord, notes communes et mobiles, ancrage sur la tonique, substitut tritonique, ordonnanceur audio sur `AudioContext` factice (comptage et placement des clics, tenue et hauteur du bourdon, coupure du maître à l'arrêt), rendu des onze grades, modèles, réglages, saisie invalide, persistance, bulles pédagogiques (analyse, couverture des 132 combinaisons grade × note, renvois théorie ↔ exercice non orphelins, clics réels dans le DOM), absence de dépendance externe et de contenu pédagogique dans `index.html`, **boîte à rythmes** : les six grooves publics relus un par un, la table complète des métriques légales (`16/4`, `12/4`, `12/3`, `12/2`, `12/6`, `16/2`) et le refus des divisions non entières, la concordance de `metre` avec `count / battues`, dix grooves fabriqués **illégaux** (grille trop courte, trop longue, caractère hors alphabet, timbre inconnu, aucune voix, `count` absent, tempo min > max, `metre` menteur), les cases qui tombent pile et jamais deux au même instant pour une même voix, le shuffle aux tiers de temps **contre la valse aux demis à `count` égal**, la monotonie du curseur de densité, la batterie coupée qui laisse le clic **inchangé en nombre**, le groove incompatible qui se tait au lieu de s'étirer, le clic rabaissé sur ses quatre timbres, le gap batterie mesuré mesure par mesure à travers l'ordonnanceur, l'anticipation qui avance la nappe **sans déplacer une seule frappe**, les trois marqueurs de restitution vus par la section rythmique, le compte des connexions à `ctx.destination` — qui doit rester à zéro —, et **le tirage de variante** : le schéma refusé sur quinze formes fabriquées illégales (variante numérotée 0, `n` dupliqué, poids nul, type inconnu, voix de variante trop courte ou hors alphabet, `interdits` désignant une variante absente…), les poids **balayés case par case** sur mille aléas — 800 pour un poids de 8 contre 2 —, les quatre filtres pris un à un, le sens d'`interdits` éprouvé sur une table **asymétrique** (une table symétrique se lirait pareil dans les deux sens et ne prouverait rien), les replis de filtre vide, **4 000 mesures sans qu'aucune variante ne se suive elle-même** — avec le contrôle qui donne son sens à celui-là : *sans* la table, la répétition revient —, le fill qui ne tombe qu'en fin de phrase et y tombe à chaque fois sur 400 mesures, le post-fill qui suit systématiquement le fill, et à travers l'ordonnanceur le **compte exact de frappes par mesure** qui suit la variante tirée ; **le marqueur de partie** : la portée lue sur onze écritures (retour en A, ouverture sur B, casse, `%`, `/`, `*n`, cohabitation avec `^`, `..` et `_`), les huit refus dits un par un, la partie recopiée sur **chaque temps** de la ligne de temps, `sectionCourante` hors bornes, `varianteBase` sur les six patrons publics et sur une partie inconnue, et **bout en bout** la même grille marquée `[A]` puis `[B]` — famille de variantes différente dès la première mesure, **charleston ouvert entendu en B et jamais en A**, bascule qui tombe pile sur la barre de mesure, et 1 000 mesures en B sans que la base de B se suive elle-même ; la non-régression étant assertée sur les huit modèles embarqués et les onze grilles de palier, qui ne portent aucun crochet ; et **couche impro** : déterminisme à graine égale, réservoir tenu sur un accord hostile (`Cmaj7 | F#7`), piliers aux rendez-vous, chaque couche coupée qui **change** la sortie, mesure exactement remplie aux quatre métriques, aucune valeur binaire en subdivision ternaire, jamais deux attaques au même instant, bridage au grade (G0 sur l'ancrage seul, G2 dans la cellule), registre et cohérence hauteur/classe sur les onze grades, cycle démo/gap et indices de phrase en reprise comme en échange, gap plus long que la boucle, neuf figures fabriquées dont illégales (`C5`, `Dsus4`, `Bdim7`, boucle d'un seul accord, 32 mesures, boucle vide), gap qui ne coupe que la démo et laisse le clic intact, silence en atelier, réglages persistés, halo du manche.
 
-**Le répertoire étant hors dépôt, les séries qui en dépendent sont ignorées s'il est absent** : un clone nu valide le moteur et l'interface (**1 268 assertions**, dont 66 pour la couche impro et 426 pour la boîte à rythmes) ; avec `repertoire.json` posé à côté, la vérification fiche par fiche s'ajoute — grille lisible, longueur annoncée, gamme connue, tonalité effectivement lue, absence du titre et de l'artiste dans `index.html` — soit 1 108 assertions de plus sur les trente-huit fiches actuelles. Le test annonce lequel des deux régimes il a suivi.
+**Le répertoire étant hors dépôt, les séries qui en dépendent sont ignorées s'il est absent** : un clone nu valide le moteur et l'interface (**1 283 assertions**, dont 66 pour la couche impro et 441 pour la boîte à rythmes) ; avec `repertoire.json` posé à côté, la vérification fiche par fiche s'ajoute — grille lisible, longueur annoncée, gamme connue, tonalité effectivement lue, absence du titre et de l'artiste dans `index.html` — soit 1 108 assertions de plus sur les trente-huit fiches actuelles. Le test annonce lequel des deux régimes il a suivi.
 
 Le double d'`AudioContext` tient **deux journaux séparés**, `__rampes` pour le gain et `__freq` pour la fréquence. La voix de la démo balaie son filtre ; si les deux paramètres écrivaient au même endroit, une rampe de 9 000 Hz serait comptée comme un niveau et la série du bourdon — qui lit le maximum des rampes de gain — rougirait pour une raison fausse.
 
@@ -193,6 +193,40 @@ Le double d'`AudioContext` tient **deux journaux séparés**, `__rampes` pour le
 > les décisions qui les ont produits, elles, n'ont pas été consignées et ne sont pas
 > reconstituées ici. Le journal est en ajout seul : mieux vaut un trou visible qu'une
 > continuité inventée.
+
+### 2026-08-26 — le fill de la partie B garde la signature de sa partie
+
+**Le défaut, et son aveu dans le banc.** La variante `{n:6, type:"fill", section:"B"}` de `rk-base`
+était la **copie exacte** du fill de A — `charleston`/`hat` là où la partie B joue partout
+`charleston ouvert`/`hat-ouvert`. La partie B retombait donc dans le timbre de l'autre au moment le
+plus audible du cycle, la fin de phrase. Et le banc le **savait** : l'assertion « la partie B fait
+sonner le charleston ouvert » portait un `slice(0, 3)` qui retirait la mesure 4 — c'est-à-dire
+exactement le fill — sans justification sur la ligne d'à côté. Elle ne testait pas la partie B,
+elle contournait son défaut ; c'est le cas d'école de la règle posée la veille.
+
+**La correction tient dans une ligne de grille.** Le fill de B troque son charleston fermé pour
+l'ouvert : `X...X...........` — **deux temps, puis silence**. Pas quatre : un charleston ouvert
+sonne long, le laisser sur le temps 3 baverait sur les quatre doubles de caisse claire, qui doivent
+finir seules pour que la fin de phrase se dise. Pas trois non plus, transposition stricte du point
+de coupe de A, écartée pour la même raison. La caisse claire, elle, ne bouge pas
+(`....X.......xxxx`, la même qu'en A) : un fill reste un fill, c'est elle qui le dit.
+
+**Le banc.** Le `slice(0, 3)` est **retiré** : l'assertion couvre les quatre mesures, fill compris,
+et son commentaire dit désormais pourquoi il n'y a **pas** de borne. Série 22.6 neuve : le fill de B
+n'est plus la copie de celui de A, il ouvre le charleston et n'emporte plus de fermé, l'ouvert tient
+deux temps et frappe **moins** que dans la base de B, la caisse claire est identique dans les deux
+fills, et — garde en balayage, pour couvrir aussi les variantes qui n'existent pas encore — toute
+variante de la partie B déclare l'ouvert. Non-régression : le fill de A n'a pas bougé, d'aucun de
+ses deux timbres. **1 268 → 1 283 assertions**, toutes vertes, sur le poste (node v24) comme dans le
+conteneur (node v22), aux mêmes empreintes. La série neuve lancée contre le build d'avant : **6 rouges, zéro crash** — les replis
+(`grille(null)` → `""`) rougissent au lieu de planter. Contre-épreuve : **onze mutations délibérées,
+onze détectées, zéro garde muette** — dont le fill redevenu copie de A, l'ouvert tenu quatre temps,
+la base de B descendue à deux ouverts, le fill de A rouvert, et la variante 6 disparue (11 rouges).
+
+**Le poids.** `index.html` 202 325 → **202 927 o** (+602) ; `test.js` 183 936 → **187 477 o**.
+
+**Ce qui n'est pas fait** : inchangé depuis la veille — la grille n'affiche toujours pas le
+marqueur, et la partie n'est lue que par la boîte à rythmes.
 
 ### 2026-08-25 (suite) — le marqueur de partie : la grille dit enfin sa section
 
