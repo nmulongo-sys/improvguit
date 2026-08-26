@@ -421,7 +421,9 @@ REP.morceaux.forEach(function (m) {
   t("grade valide : " + m.code, Number(m.grade) >= 0 && Number(m.grade) <= 10);
   t("tempo plausible : " + m.code, Number(m.tempo) >= 40 && Number(m.tempo) <= 260);
   t("gamme connue : " + m.code, F.GAMMES.some(function (g) { return g.id === m.gamme; }));
-  t("battues connues : " + m.code, [2, 3, 4, 6].indexOf(b) >= 0);
+  /* ⚑ « connues » = OFFERTES par le sélecteur, lues dans le DOM — pas une
+     liste recopiée ici, qui vieillirait sans que rien ne rougisse. */
+  t("battues offertes au sélecteur : " + m.code, battuesOffertesDOM().indexOf(b) >= 0);
   t("subdivision valide : " + m.code,
     m.subdivision === undefined || [1, 2, 3].indexOf(Number(m.subdivision)) >= 0);
   t("code cohérent avec le grade : " + m.code,
@@ -477,6 +479,11 @@ eq("fiche G5-1 : 2 temps par mesure", Number(hotrs.battues), 2);
    ------------------------------------------------------------------ */
 const champ = doc.getElementById("saisieAccords");
 const msg = doc.getElementById("msgErreur");
+/* La liste des mesures réglables, telle que l'utilisateur la voit. */
+function battuesOffertesDOM() {
+  return Array.prototype.map.call(doc.getElementById("battues").options,
+    function (o) { return parseInt(o.value, 10); });
+}
 function saisir(v) {
   champ.value = v;
   champ.dispatchEvent(new win.Event("change", { bubbles: true }));
@@ -2326,6 +2333,9 @@ const I = win.eval("({poserAlea, graine, FIGURES, DENSITE, GESTE_GRADE," +
 const BR = win.eval("({GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEAU_PERCU," +
   " battuesGroove, casesParTemps, metreCalcule, verifierGroove, poserGrooves," +
   " grooveCourant, groovesCompatibles, batterieArmee, batterieMuette, batterieJoue," +
+  /* ⚑ repli explicite : sur le build d'avant (822dc08) battuesOffertes n'existe
+     pas ; sans ce repli la série rougirait en CRASHANT, et cacherait le reste. */
+  " battuesOffertes: (typeof battuesOffertes === 'function') ? battuesOffertes : function () { return []; }," +
   " casesDuTemps, planPercu, majBatterie, PROFIL_PUSH, regimeCroche, avancePush," +
   " volumeClic, VOLUME_CLIC, VOLUME_CLIC_BAS, percuPasser, initBruit," +
   " variantesDe, voixVariante, phraseDe, sectionCourante, varianteBase, variantesLegales," +
@@ -2340,9 +2350,17 @@ const BR = win.eval("({GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEA
   /* ---- 20.1 Le schéma, et les six grooves publics ------------------ */
 
   eq("neuf grooves publics embarqués", BR.GROOVES.length, 9);
+  /* ⚑ Légal ne suffit pas : ATTEIGNABLE. Un groove dont les battues ne
+     sont pas offertes au sélecteur de mesure n'est proposé nulle part. */
+  eq("battuesOffertes lit le sélecteur, dans son ordre",
+    BR.battuesOffertes().join(), battuesOffertesDOM().join());
+  t("le sélecteur de mesure offre 8 temps", BR.battuesOffertes().indexOf(8) >= 0);
+  t("…et les offre sans doublon", new Set(BR.battuesOffertes()).size === BR.battuesOffertes().length);
   BR.GROOVES.forEach(function (g) {
     const p = BR.verifierGroove(g);
     t("groove légal : " + g.id + (p.length ? " — " + p.join(" · ") : ""), p.length === 0);
+    t("groove atteignable au sélecteur : " + g.id + " (" + BR.battuesGroove(g) + " temps)",
+      BR.battuesOffertes().indexOf(BR.battuesGroove(g)) >= 0);
   });
   t("aucun nom d'auteur dans le vocabulaire de grooves",
     !/santos|martinez|pellecuer|dworsky|brundage|fisher|nelson/i.test(JSON.stringify(BR.GROOVES)));
@@ -2644,6 +2662,7 @@ const BR = win.eval("({GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEA
     BR.groovesCompatibles(2).map(function (g) { return g.id; }).join(), "sh-six-huit,sh-six-huit-poly");
   eq("six grooves pour quatre temps", BR.groovesCompatibles(4).length, 6);
   eq("aucun groove pour six temps", BR.groovesCompatibles(6).length, 0);
+  eq("aucun groove public pour huit temps", BR.groovesCompatibles(8).length, 0);
 
   poser("C | G", 3, "va-trois");
   t("la valse tient une mesure à trois temps", BR.grooveCourant() !== null);
@@ -2909,6 +2928,41 @@ const BR = win.eval("({GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEA
     t("le select est neutralisé", doc.getElementById("groove").disabled === true);
     F.etat.batterie = false; BR.majBatterie();
     t("le champ se referme avec l'interrupteur", doc.getElementById("champBatterie").hidden === true);
+
+    /* ---- 20.7 bis Battues 8 : offertes, et le chemin complet passe ---
+       Note 30 → 33 : Coucou et Djolé (battues 8) étaient légaux, chargés,
+       comptés — et invisibles, parce que 8 n'était pas au sélecteur de
+       mesure. Ici le chemin RÉEL : porte poserGrooves → événement change
+       du sélecteur de mesure → majBatterie → option présente et choisie.
+       ⚑ Contre-épreuve : retirer <option>8</option> de index.html doit
+       rougir ces lignes (le select refuse la valeur, la mesure reste). */
+    const huit = {famille: "essai", id: "es-huit", label: "Essai huit temps",
+      count: 16, battues: 8, metre: "bin", min: 60, max: 120,
+      voix: [{role: "grosse-caisse", timbre: "kick", grid: "X.x.X.x.X.x.X.x."}]};
+    const porte = BR.poserGrooves([huit]);
+    eq("un groove à huit temps passe la porte", porte.pris.length, 1);
+    eq("il est compatible avec huit temps", BR.groovesCompatibles(8).map(function (g) { return g.id; }).join(), "es-huit");
+    F.etat.batterie = true; F.etat.battues = 4; F.etat.saisie = "C | G";
+    saisir("C | G");
+    BR.majBatterie();
+    t("à quatre temps, il ne paraît pas", !doc.querySelector('#groove option[value="es-huit"]'));
+    eq("le sélecteur de mesure accepte 8", reglerBattues(8), "8");
+    eq("et l'état suit", F.etat.battues, 8);
+    eq("la timeline compte huit temps par mesure", F.timeline.length, 16);
+    t("le groove à huit temps paraît alors", !!doc.querySelector('#groove option[value="es-huit"]'));
+    eq("et il est choisi, la liste n'ayant que lui", F.etat.groove, "es-huit");
+    t("la batterie est armée sur huit temps", BR.batterieArmee() === true);
+    t("l'aide dit « 1 groove pour 8 temps »", /1 groove pour 8 temps/.test(doc.getElementById("aideGroove").textContent));
+    /* huit emplacements tiennent dans une mesure à huit temps */
+    saisir("C D E F G A B C");
+    t("huit emplacements acceptés à huit temps", doc.getElementById("msgErreur").hidden === true);
+    saisir("C | G");
+    /* remise en état */
+    reglerBattues(4);
+    const jh = BR.GROOVES.map(function (g) { return g.id; }).indexOf("es-huit");
+    if (jh >= 0) BR.GROOVES.splice(jh, 1);
+    eq("le groove d'essai à huit temps est retiré", BR.GROOVES.length, 9);
+    F.etat.batterie = false; BR.majBatterie();
   })();
 
   /* ---- 20.8 Persistance ------------------------------------------- */
@@ -4162,6 +4216,11 @@ const BR = win.eval("({GROOVES, CASES_LEGALES, FORCE_CASE, APPUI, TIMBRES, NIVEA
     CORPUS_PRIVE.grooves.forEach(function (g) {
       t("groove privé accepté par la porte : " + ((g && g.id) || "?"),
         BR.verifierGroove(g).length === 0);
+      /* ⚑ et ATTEIGNABLE : ses battues sont offertes au sélecteur de mesure.
+         C'est l'assertion qui manquait quand Coucou et Djolé ont disparu. */
+      t("groove privé atteignable au sélecteur : " + ((g && g.id) || "?") +
+        " (" + BR.battuesGroove(g) + " temps)",
+        BR.battuesOffertes().indexOf(BR.battuesGroove(g)) >= 0);
     });
   }
 

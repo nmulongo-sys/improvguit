@@ -353,7 +353,7 @@ body.jeu .grille-cadre{flex:0 0 auto;max-height:104px;margin-bottom:0}
   <div class="champ ligne">
     <div>
       <label for="battues">Temps / mesure</label>
-      <select id="battues"><option>4</option><option>3</option><option>2</option><option>6</option></select>
+      <select id="battues"><option>4</option><option>3</option><option>2</option><option>6</option><option>8</option></select>
     </div>
     <div>
       <label for="subdivision">Subdivision</label>
@@ -2126,6 +2126,20 @@ function groovesCompatibles(battues){
   return GROOVES.filter(function(g){
     return battuesGroove(g) === b && !verifierGroove(g).length;
   });
+}
+/* ⚑ Les mesures qu'on peut régler sont CELLES du sélecteur, et rien
+   d'autre. Un groove dont les battues n'y figurent pas est légal, chargé,
+   compté — et INATTEIGNABLE : il existe sans qu'on puisse jamais le
+   choisir. C'est arrivé en production (note 30 → 33 : Coucou et Djolé,
+   battues 8, absents du sélecteur tant que la mesure restait en 4, et
+   8 n'était pas offert). Le banc exige donc que chaque battues du corpus,
+   public comme privé, soit offerte ici — la liste se lit dans le DOM,
+   jamais recopiée. */
+function battuesOffertes(){
+  const s = (typeof document !== "undefined") ? document.getElementById("battues") : null;
+  if(!s) return [];
+  return Array.prototype.map.call(s.options, function(o){ return parseInt(o.value, 10); })
+         .filter(function(n){ return n > 0; });
 }
 /* Armée : l'interrupteur est mis ET un groove tient la mesure. C'est
    ce drapeau — pas le gap — qui rabaisse le clic : un niveau de clic
@@ -4215,7 +4229,7 @@ if(typeof module !== "undefined" && module.exports){
                     poserCorpus, doitChercherCorpus, chargerCorpusDistant,
                     variantesDe, voixVariante, phraseDe, sectionCourante, varianteBase, variantesLegales,
                     tirerVariante, avancerVariante, reinitPercu, varianteCourante,
-                    grooveCourant, groovesCompatibles, batterieArmee, batterieMuette,
+                    grooveCourant, groovesCompatibles, battuesOffertes, batterieArmee, batterieMuette,
                     batterieJoue, casesDuTemps, planPercu, majBatterie,
                     PROFIL_PUSH, regimeCroche, avancePush, volumeClic, VOLUME_CLIC, VOLUME_CLIC_BAS};
 }
